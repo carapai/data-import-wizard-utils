@@ -1,0 +1,27 @@
+{
+    "name": "diw-utils",
+    "version": "1.0.0",
+    "description": "Data Import Wizard Utils",
+    "main": "./lib/cjs/index.js",
+    "module": "./lib/ems/index.js",
+    "types": "lib/index.d.ts",
+    "files": [
+        "lib"
+    ],
+    "scripts": {
+        "build": "tsc -p tsconfig.json && tsc -p tsconfig-cjs.json"
+    },
+    "keywords": [],
+    "author": "",
+    "license": "ISC",
+    "dependencies": {},
+    "publishConfig": {
+        "registry": "https://npm.pkg.github.com/"
+    },
+    "repository": {
+        "url": "git@github.com:carapai/diw-utils.git"
+    },
+    "devDependencies": {
+        "typescript": "^5.0.3"
+    }
+}
