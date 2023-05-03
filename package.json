@@ -2,19 +2,26 @@
     "name": "diw-utils",
     "version": "1.0.0",
     "description": "Data Import Wizard Utils",
-    "main": "./lib/cjs/index.js",
-    "module": "./lib/ems/index.js",
+    "main": "./lib/index.js",
     "types": "lib/index.d.ts",
+    "type": "commonjs",
     "files": [
         "lib"
     ],
     "scripts": {
-        "build": "tsc -p tsconfig.json && tsc -p tsconfig-cjs.json"
+        "build": "tsc"
     },
     "keywords": [],
-    "author": "",
+    "author": "carapai",
     "license": "ISC",
-    "dependencies": {},
+    "dependencies": {
+        "@emotion/styled": "^11.10.6",
+        "axios": "0.27.2",
+        "chakra-react-select": "3.3.7",
+        "date-fns": "^2.29.3",
+        "lodash": "^4.17.21",
+        "zod": "^3.21.4"
+    },
     "publishConfig": {
         "registry": "https://npm.pkg.github.com/"
     },
@@ -22,6 +29,7 @@
         "url": "git@github.com:carapai/diw-utils.git"
     },
     "devDependencies": {
+        "@types/lodash": "^4.14.192",
         "typescript": "^5.0.3"
     }
 }

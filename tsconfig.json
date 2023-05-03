@@ -1,13 +1,11 @@
 {
     "compilerOptions": {
-        "target": "ES2015",
-        "module": "ES2020",
+        "outDir": "./lib",
+        "target": "ES2021",
+        "module": "CommonJS",
         "declaration": true,
-        "outDir": "./lib/esm",
-        "strict": true,
-        "lib": ["DOM", "ES2015"],
-        "moduleResolution": "node",
-        "sourceMap": true
+        "esModuleInterop": true
+        // "noImplicitAny": true
     },
     "include": ["src/**/*.ts"],
     "exclude": ["node_modules"]
