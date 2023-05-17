@@ -1,4 +1,5 @@
 export const GO_DATA_DEFAULT_FIELDS = [
+    "id",
     "visualId",
     "firstName",
     "middleName",

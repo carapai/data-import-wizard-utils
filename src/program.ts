@@ -6,6 +6,7 @@ import {
     getOr,
     groupBy,
     isEmpty,
+    set,
     uniqBy,
     update,
 } from "lodash/fp";
@@ -28,6 +29,7 @@ import {
     ValueType,
     Authentication,
     IGoData,
+    DHIS2OrgUnit,
 } from "./interfaces";
 import { createOptions } from "./utils";
 import { GO_DATA_DEFAULT_FIELDS } from "./constants";
@@ -287,8 +289,8 @@ export const convertFromDHIS2 = async (
     });
 };
 
-export const convertToGoData = async (
-    data: { trackedEntityInstances: TrackedEntityInstance[] },
+export const convertToGoData = (
+    data: { trackedEntityInstances: Array<Partial<TrackedEntityInstance>> },
     organisationUnitMapping: Mapping,
     attributeMapping: Mapping,
     goData: Partial<IGoData>
@@ -307,23 +309,22 @@ export const convertToGoData = async (
     return Object.values(groupedData).flatMap((instanceData) => {
         let questionnaireAnswers: { [key: string]: Array<{ value: any }> } = {};
         const firstRecord = instanceData[0];
-        const orgUnit = instanceData["orgUnit"];
-
-        console.log(orgUnit);
-        console.log(flippedUnits);
-
+        const orgUnit = firstRecord["orgUnit"];
         let obj: { [key: string]: any } = {
             addresses: [
                 {
                     locationId: flippedUnits[orgUnit] || "",
+                    typeId: "LNG_REFERENCE_DATA_CATEGORY_ADDRESS_TYPE_USUAL_PLACE_OF_RESIDENCE",
                 },
             ],
+            dateOfOnset: firstRecord.enrollmentDate,
+            dateOfReporting: firstRecord.incidentDate,
+            classification: "Confirmed",
         };
 
         Object.entries(attributeMapping).forEach(([attribute, mapping]) => {
             if (mapping.value && attributes.indexOf(attribute) !== -1) {
                 const values = instanceData.flatMap((d) => {
-                    console.log(mapping.value, d[mapping.value]);
                     const actualValue = d[mapping.value];
                     if (actualValue) {
                         return { value: actualValue };
@@ -337,7 +338,16 @@ export const convertToGoData = async (
                     };
                 }
             } else {
-                obj = { ...obj, [attribute]: firstRecord[mapping.value] };
+                if (attribute.indexOf(".") !== -1) {
+                    const value = set(
+                        attribute,
+                        firstRecord[mapping.value],
+                        {}
+                    );
+                    obj = { ...obj, ...value };
+                } else {
+                    obj = { ...obj, [attribute]: firstRecord[mapping.value] };
+                }
             }
         });
         return { ...obj, questionnaireAnswers };
@@ -708,7 +718,7 @@ export const processPreviousInstances = (
 };
 
 export const flattenTrackedEntityInstances = (response: {
-    trackedEntityInstances: Array<TrackedEntityInstance>;
+    trackedEntityInstances: Array<Partial<TrackedEntityInstance>>;
 }) => {
     return response.trackedEntityInstances.flatMap(
         ({
@@ -828,10 +838,20 @@ export const findUniqueDataElements = (programStageMapping: StageMapping) => {
     return fromPairs(uniqElements);
 };
 
+const getParentName = (parent: Partial<DHIS2OrgUnit>) => {
+    let first = parent;
+    let allNames: string[] = [];
+    while (first && first.name) {
+        allNames = [...allNames, first.name];
+        first = first.parent;
+    }
+    return allNames;
+};
+
 const getOrgUnits = (program: Partial<IProgram>): Array<Option> => {
-    return program.organisationUnits?.map(({ id, name, code }) => {
+    return program.organisationUnits?.map(({ id, name, code, parent }) => {
         return {
-            label: name,
+            label: [...getParentName(parent).reverse(), name].join("/"),
             value: id,
             code,
         };
@@ -840,7 +860,14 @@ const getOrgUnits = (program: Partial<IProgram>): Array<Option> => {
 const getAttributes = (program: Partial<IProgram>): Array<Option> => {
     return program.programTrackedEntityAttributes?.map(
         ({
-            trackedEntityAttribute: { id, name, code, unique, optionSetValue },
+            trackedEntityAttribute: {
+                id,
+                name,
+                code,
+                unique,
+                optionSetValue,
+                optionSet,
+            },
         }) => {
             return {
                 label: name,
@@ -848,6 +875,7 @@ const getAttributes = (program: Partial<IProgram>): Array<Option> => {
                 code,
                 unique,
                 optionSetValue,
+                options: optionSet?.options || [],
             };
         }
     );
@@ -975,7 +1003,7 @@ export const makeMetadata = (
                 sourceAttributes: attributes,
             };
         }
-    } else if (programMapping.orgUnitColumn) {
+    } else {
         let columns: Array<Option> = [];
         if (data.length > 0) {
             columns = Object.keys(data[0]).map((key) => {
@@ -1037,8 +1065,8 @@ export const makeMetadata = (
             results = {
                 ...results,
                 sourceOrgUnits: units,
-                // columns,
-                // attributes: columns,
+                sourceColumns: columns,
+                sourceAttributes: columns,
                 uniqueAttributeValues,
             };
         }
@@ -1128,16 +1156,13 @@ export const makeValidation = (state: Partial<IProgram>) => {
 };
 
 export const canQueryDHIS2 = (state: Partial<IProgramMapping>) => {
-    if (
+    return (
         state.dataSource === "api" &&
         state.authentication?.url &&
         state.authentication?.username &&
         state.authentication?.password &&
         state.isDHIS2
-    ) {
-        return true;
-    }
-    return false;
+    );
 };
 
 export const programUniqAttributes = (attributeMapping: Mapping) => {

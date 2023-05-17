@@ -29,6 +29,10 @@ export interface CommonIdentifier {
     code: string;
 }
 
+export interface DHIS2OrgUnit extends CommonIdentifier {
+    parent: Partial<DHIS2OrgUnit>;
+}
+
 export const ValueType = {
     TEXT: z.string(),
     LONG_TEXT: z.string(),
@@ -261,7 +265,7 @@ export interface ITrackedEntityAttribute extends CommonIdentifier {
     optionSet?: OptionSet;
 }
 
-interface OptionSet {
+export interface OptionSet {
     name: string;
     options: CommonIdentifier[];
     id: string;
@@ -297,7 +301,7 @@ export interface IProgram {
     displayName: string;
     id: string;
     attributeValues: any[];
-    organisationUnits: CommonIdentifier[];
+    organisationUnits: DHIS2OrgUnit[];
     programStages: IProgramStage[];
     programSections: any[];
     programTrackedEntityAttributes: IProgramTrackedEntityAttribute[];
@@ -335,6 +339,7 @@ export interface TrackedEntityInstance {
     enrollments: Array<Partial<Enrollment>>;
     relationships: any[];
     attributes: Array<Partial<Attribute>>;
+    lastUpdatedAtClient: string;
 }
 
 export interface Enrollment {
@@ -356,6 +361,8 @@ export interface Enrollment {
     relationships: any[];
     events: Event[];
     attributes: Attribute[];
+    storedBy: string;
+    lastUpdatedAtClient: string;
 }
 
 export interface Attribute {
@@ -366,11 +373,12 @@ export interface Attribute {
     attribute: string;
     value: string;
     code?: string;
+    storedBy: string;
 }
 
 export interface Event {
     dueDate: string;
-    createdAtClient: string;
+    // createdAtClient: string;
     program: string;
     event: string;
     programStage: string;
@@ -384,12 +392,13 @@ export interface Event {
     attributeCategoryOptions: string;
     lastUpdated: string;
     created: string;
-    followup: boolean;
+    // followup: boolean;
     deleted: boolean;
     attributeOptionCombo: string;
     dataValues: Array<Partial<DataValue>>;
     notes: any[];
     relationships: any[];
+    storedBy: string;
 }
 
 export interface DataValue {
@@ -414,6 +423,7 @@ export interface Option extends OptionBase {
     unique?: boolean;
     optionSetValue?: boolean;
     mandatory?: boolean;
+    options?: CommonIdentifier[];
 }
 
 export interface IGoData {
@@ -586,6 +596,34 @@ export interface IGoDataOrgUnit {
     active: boolean;
     parentLocationId: string;
     geographicalLevelId: string;
+    id: string;
+    createdAt: string;
+    createdBy: string;
+    updatedAt: string;
+    updatedBy: string;
+    createdOn: string;
+    deleted: boolean;
+}
+
+export interface GODataTokenGenerationResponse {
+    id: string;
+    ttl: number;
+    created: string;
+    userId: string;
+    createdAt: string;
+    createdBy: string;
+    updatedAt: string;
+    updatedBy: string;
+    deleted: boolean;
+}
+
+export interface GODataOption {
+    categoryId: string;
+    value: string;
+    description: string;
+    readOnly: boolean;
+    active: boolean;
+    isDefaultReferenceData: boolean;
     id: string;
     createdAt: string;
     createdBy: string;
