@@ -210,6 +210,8 @@ export interface IProgramMapping extends IMapping {
     // events: boolean;
     // remoteStage: string;
     // remoteTrackedEntityTypes: {};
+    created: string;
+    lastUpdated: string;
 }
 
 export interface IProgramStage {

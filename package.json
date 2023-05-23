@@ -1,5 +1,5 @@
 {
-    "name": "diw-utils",
+    "name": "data-import-wizard-utils",
     "version": "1.0.0",
     "description": "Data Import Wizard Utils",
     "main": "./lib/index.js",

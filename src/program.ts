@@ -36,12 +36,12 @@ import { GO_DATA_DEFAULT_FIELDS } from "./constants";
 
 export const stepLabels: { [key: number]: string } = {
     0: "Create New Mapping",
-    1: "Next",
-    2: "Next",
-    3: "Next",
-    4: "Next",
-    5: "Next",
-    6: "Next",
+    1: "Next Step",
+    2: "Next Step",
+    3: "Next Step",
+    4: "Next Step",
+    5: "Next Step",
+    6: "Next Step",
     7: "Import",
     8: "Finish",
 };
@@ -893,6 +893,19 @@ export const makeMetadata = (
 ) => {
     const destinationOrgUnits = getOrgUnits(program);
     const destinationAttributes = getAttributes(program);
+
+    const uniqueAttributeValues = data.flatMap((d) => {
+        const values = Object.entries(attributeMapping).flatMap(
+            ([attribute, mapping]) => {
+                const { unique, value } = mapping;
+                if (unique && value) {
+                    return { attribute, value: getOr("", value, d) };
+                }
+                return [];
+            }
+        );
+        return values;
+    });
     let results: {
         sourceOrgUnits: Array<Option>;
         destinationOrgUnits: Array<Option>;
@@ -911,7 +924,7 @@ export const makeMetadata = (
         sourceAttributes: [],
         // attributes: [],
         stages: [],
-        uniqueAttributeValues: [],
+        uniqueAttributeValues,
     };
 
     if (programMapping.dataSource === "dhis2") {
@@ -1039,18 +1052,6 @@ export const makeMetadata = (
                 })
             );
         }
-        const uniqueAttributeValues = data.flatMap((d) => {
-            const values = Object.entries(attributeMapping).flatMap(
-                ([attribute, mapping]) => {
-                    const { unique, value } = mapping;
-                    if (unique && value) {
-                        return { attribute, value: getOr("", value, d) };
-                    }
-                    return [];
-                }
-            );
-            return values;
-        });
         if (programMapping.isSource) {
             results = {
                 ...results,
