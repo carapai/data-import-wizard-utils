@@ -64,3 +64,5 @@ export const GO_DATA_DEFAULT_FIELDS = [
     "socialRelationshipDetail",
     "comment",
 ];
+export const DATE_TIME_FORMAT = "YYYY-MM-DD HH:mm:ss";
+export const DATE_FORMAT = "YYYY-MM-DD";

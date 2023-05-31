@@ -1,6 +1,6 @@
 import { groupBy, max } from "lodash/fp";
-import { IGoDataOrgUnit, Option } from "./interfaces";
-import { maxBy } from "lodash";
+import { Authentication, IGoDataOrgUnit, Option, Param } from "./interfaces";
+import { makeRemoteApi } from "./program";
 
 export const createOptions = (options: string[]): Option[] => {
     return options.map((label) => {
@@ -35,3 +35,30 @@ export function getLowestLevelParents(data: IGoDataOrgUnit[]) {
         return { ...child, name };
     });
 }
+
+export const fetchRemote = async <IData>(
+    authentication: Partial<Authentication> | undefined,
+    url: string = "",
+    params: { [key: string]: Param } = {}
+) => {
+    const api = makeRemoteApi({
+        ...authentication,
+        params: { ...authentication?.params, ...params },
+    });
+    const { data } = await api.get<IData>(url);
+    return data;
+};
+
+export const postRemote = async <IData>(
+    authentication: Partial<Authentication> | undefined,
+    url: string = "",
+    payload: Object,
+    params: { [key: string]: Partial<Param> } = {}
+) => {
+    const api = makeRemoteApi({
+        ...authentication,
+        params: { ...(authentication?.params || {}), ...params },
+    });
+    const { data } = await api.post<IData>(url, payload);
+    return data;
+};

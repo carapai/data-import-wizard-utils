@@ -634,3 +634,20 @@ export interface GODataOption {
     createdOn: string;
     deleted: boolean;
 }
+export interface ISchedule {
+    id: string;
+    name: string;
+    type: string;
+    schedule: string;
+    createdAt: string;
+    nextRun: string;
+    lastRun: string;
+    additionalDays: number;
+    schedulingSeverURL: string;
+    description: string;
+    immediate: boolean;
+    upstream: string;
+    mapping: string;
+    updatedAt: string;
+    status: "scheduled" | "running" | "stopped" | "created";
+}

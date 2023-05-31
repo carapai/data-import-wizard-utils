@@ -293,7 +293,8 @@ export const convertToGoData = (
     data: { trackedEntityInstances: Array<Partial<TrackedEntityInstance>> },
     organisationUnitMapping: Mapping,
     attributeMapping: Mapping,
-    goData: Partial<IGoData>
+    goData: Partial<IGoData>,
+    previousData: any[] = []
 ) => {
     const flippedUnits = fromPairs(
         Object.entries(organisationUnitMapping).map(([unit, value]) => {
@@ -370,14 +371,15 @@ export const convertToDHIS2 = async (
     organisationUnitMapping: Mapping,
     attributeMapping: Mapping,
     programStageMapping: { [key: string]: Mapping },
-    programUniqAttributes: string[],
-    programStageUniqueElements: { [key: string]: string[] },
-    programUniqColumns: string[],
     version: number,
     program: Partial<IProgram>,
     elements: Dictionary<z.ZodObject<{}, "strip", z.ZodTypeAny, {}, {}>>,
     attributesSchema: z.ZodObject<{}, "strip", z.ZodTypeAny, {}, {}>
 ) => {
+    const uniqAttributes = programUniqAttributes(attributeMapping);
+    const uniqStageElements = programStageUniqElements(programStageMapping);
+    const uniqColumns = programUniqColumns(attributeMapping);
+    const uniqStageColumns = programStageUniqColumns(programStageMapping);
     const {
         onlyEnrollOnce,
         selectEnrollmentDatesInFuture,
@@ -397,7 +399,7 @@ export const convertToDHIS2 = async (
     );
 
     const stages = fromPairs(
-        programStages?.map((programStage) => {
+        programStages.map((programStage) => {
             return [programStage.id, programStage];
         })
     );
@@ -420,11 +422,10 @@ export const convertToDHIS2 = async (
             return { id: generateUid(), ...d };
         })
     );
-
-    if (programUniqColumns.length > 0) {
+    if (uniqColumns.length > 0) {
         groupedData = groupBy(
             (item: any) =>
-                programUniqColumns
+                uniqColumns
                     .map((column) => getOr("", column, item))
                     .sort()
                     .join(""),
@@ -478,6 +479,7 @@ export const convertToDHIS2 = async (
                     attributeMapping
                 ).flatMap(([attribute, { value }]) => {
                     const attributeDetails = programAttributes[attribute];
+                    console.log(attributeDetails);
                     const realValue = getOr("", value || "", current[0]);
                     if (realValue) {
                         const attr: Partial<Attribute> = {
@@ -580,11 +582,7 @@ export const convertToDHIS2 = async (
                     programMapping.program || "",
                     getOr(
                         {},
-                        getOr(
-                            "",
-                            programUniqColumns.sort().join(""),
-                            current[0]
-                        ),
+                        getOr("", uniqColumns.sort().join(""), current[0]),
                         previousData.dataElements
                     ),
                     stages
@@ -607,7 +605,7 @@ export const convertToDHIS2 = async (
 export const processPreviousInstances = (
     trackedEntityInstances: TrackedEntityInstance[],
     programUniqAttributes: string[],
-    programStageUniqueElements: { [key: string]: string[] },
+    programStageUniqueElements: Dictionary<string[]>,
     currentProgram: string
 ) => {
     let currentAttributes: Array<[string, any]> = [];
@@ -881,6 +879,21 @@ const getAttributes = (program: Partial<IProgram>): Array<Option> => {
     );
 };
 
+export const findUniqAttributes = (data: any[], attributeMapping: Mapping) => {
+    return data.flatMap((d) => {
+        const values = Object.entries(attributeMapping).flatMap(
+            ([attribute, mapping]) => {
+                const { unique, value } = mapping;
+                if (unique && value) {
+                    return { attribute, value: getOr("", value, d) };
+                }
+                return [];
+            }
+        );
+        return values;
+    });
+};
+
 export const makeMetadata = (
     programMapping: Partial<IProgramMapping>,
     program: Partial<IProgram>,
@@ -893,19 +906,7 @@ export const makeMetadata = (
 ) => {
     const destinationOrgUnits = getOrgUnits(program);
     const destinationAttributes = getAttributes(program);
-
-    const uniqueAttributeValues = data.flatMap((d) => {
-        const values = Object.entries(attributeMapping).flatMap(
-            ([attribute, mapping]) => {
-                const { unique, value } = mapping;
-                if (unique && value) {
-                    return { attribute, value: getOr("", value, d) };
-                }
-                return [];
-            }
-        );
-        return values;
-    });
+    const uniqueAttributeValues = findUniqAttributes(data, attributeMapping);
     let results: {
         sourceOrgUnits: Array<Option>;
         destinationOrgUnits: Array<Option>;
@@ -922,7 +923,6 @@ export const makeMetadata = (
         destinationColumns: flattenProgram(program),
         destinationAttributes,
         sourceAttributes: [],
-        // attributes: [],
         stages: [],
         uniqueAttributeValues,
     };
@@ -984,17 +984,31 @@ export const makeMetadata = (
         }
         const attributes = createOptions(GO_DATA_DEFAULT_FIELDS);
         if (goData && goData.caseInvestigationTemplate) {
-            columns = goData.caseInvestigationTemplate.map(
-                ({ variable, required }) => {
+            columns = goData.caseInvestigationTemplate.flatMap(
+                ({ variable, required, multiAnswer, answers, answerType }) => {
                     const opt: Option = {
                         label: variable,
                         value: variable,
                         mandatory: required,
                     };
-                    return opt;
+                    return [
+                        opt,
+                        ...answers.flatMap(({ additionalQuestions }) => {
+                            if (additionalQuestions) {
+                                return additionalQuestions.map(
+                                    ({ variable }) => {
+                                        return {
+                                            label: variable,
+                                            value: variable,
+                                        };
+                                    }
+                                );
+                            }
+                            return [];
+                        }),
+                    ];
                 }
             );
-
             columns = [...attributes, ...columns];
         }
 
@@ -1059,7 +1073,6 @@ export const makeMetadata = (
                 sourceOrgUnits: results.destinationOrgUnits,
                 sourceAttributes: results.destinationAttributes,
                 destinationColumns: columns,
-                // destinationAttributes:att
                 uniqueAttributeValues,
             };
         } else {
@@ -1166,7 +1179,7 @@ export const canQueryDHIS2 = (state: Partial<IProgramMapping>) => {
     );
 };
 
-export const programUniqAttributes = (attributeMapping: Mapping) => {
+export const programUniqAttributes = (attributeMapping: Mapping): string[] => {
     return Object.entries(attributeMapping).flatMap(([attribute, mapping]) => {
         const { unique, value } = mapping;
         if (unique && value) {
@@ -1176,7 +1189,7 @@ export const programUniqAttributes = (attributeMapping: Mapping) => {
     });
 };
 
-export const programUniqColumns = (attributeMapping: Mapping) => {
+export const programUniqColumns = (attributeMapping: Mapping): string[] => {
     return Object.entries(attributeMapping).flatMap(([_, mapping]) => {
         const { unique, value } = mapping;
         if (unique && value) {
@@ -1186,7 +1199,9 @@ export const programUniqColumns = (attributeMapping: Mapping) => {
     });
 };
 
-export const programStageUniqColumns = (programStageMapping: StageMapping) => {
+export const programStageUniqColumns = (
+    programStageMapping: StageMapping
+): Dictionary<string[]> => {
     const uniqElements = Object.entries(programStageMapping).map(
         ([stage, mapping]) => {
             const { info, ...elements } = mapping;
@@ -1209,7 +1224,9 @@ export const programStageUniqColumns = (programStageMapping: StageMapping) => {
     return fromPairs(uniqElements);
 };
 
-export const programStageUniqElements = (programStageMapping: StageMapping) => {
+export const programStageUniqElements = (
+    programStageMapping: StageMapping
+): Dictionary<string[]> => {
     const uniqElements = Object.entries(programStageMapping).map(
         ([stage, mapping]) => {
             const { info, ...elements } = mapping;

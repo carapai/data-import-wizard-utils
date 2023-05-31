@@ -28,13 +28,12 @@ const attributeMapping: Mapping = {
     },
 };
 
-test("Math.sqrt()", () => {
+test("Can insert data", () => {
     const finalData = convertToGoData(
         data,
         organisationMapping,
         attributeMapping,
         outbreak
     );
-    console.log(finalData[0]);
     expect(finalData.length).toBe(2);
 });
