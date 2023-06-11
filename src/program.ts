@@ -100,7 +100,8 @@ const processEvents = (
     previousEvents: Dictionary<{
         [key: string]: Array<{ dataElement: string; value: string }>;
     }>,
-    stages: Dictionary<IProgramStage>
+    stages: Dictionary<IProgramStage>,
+    options: Dictionary<string>
 ) => {
     return Object.entries(programStageMapping).flatMap(
         ([programStage, mapping]) => {
@@ -159,9 +160,10 @@ const processEvents = (
                                 Object.entries(elements).flatMap(
                                     ([dataElement, { value }]) => {
                                         if (value) {
+                                            const val = getOr("", value, row);
                                             const dv: Partial<DataValue> = {
                                                 dataElement,
-                                                value: getOr("", value, row),
+                                                value: options[val] || val,
                                             };
                                             return dv;
                                         }
@@ -370,7 +372,8 @@ export const convertToDHIS2 = async (
     programMapping: Partial<IProgramMapping>,
     organisationUnitMapping: Mapping,
     attributeMapping: Mapping,
-    programStageMapping: { [key: string]: Mapping },
+    programStageMapping: StageMapping,
+    optionMapping: Record<string, string>,
     version: number,
     program: Partial<IProgram>,
     elements: Dictionary<z.ZodObject<{}, "strip", z.ZodTypeAny, {}, {}>>,
@@ -410,6 +413,12 @@ export const convertToDHIS2 = async (
     const flippedUnits = fromPairs(
         Object.entries(organisationUnitMapping).map(([unit, value]) => {
             return [value.value, unit];
+        })
+    );
+
+    const flippedOptions = fromPairs(
+        Object.entries(optionMapping).map(([option, value]) => {
+            return [value, option];
         })
     );
 
@@ -478,13 +487,12 @@ export const convertToDHIS2 = async (
                 const currentAttributes = Object.entries(
                     attributeMapping
                 ).flatMap(([attribute, { value }]) => {
-                    const attributeDetails = programAttributes[attribute];
-                    console.log(attributeDetails);
+                    // const attributeDetails = programAttributes[attribute];
                     const realValue = getOr("", value || "", current[0]);
                     if (realValue) {
                         const attr: Partial<Attribute> = {
                             attribute,
-                            value: realValue,
+                            value: flippedOptions[realValue] || realValue,
                         };
                         return attr;
                     }
@@ -585,7 +593,8 @@ export const convertToDHIS2 = async (
                         getOr("", uniqColumns.sort().join(""), current[0]),
                         previousData.dataElements
                     ),
-                    stages
+                    stages,
+                    flippedOptions
                 );
                 results = { ...results, events };
                 return results;
@@ -1262,17 +1271,96 @@ export const columns = (state: any[]) => {
     return [];
 };
 
+const validURL = (
+    programMapping: Partial<IProgramMapping>,
+    mySchema: z.ZodSchema
+) =>
+    !isEmpty(programMapping.name) &&
+    ["api", "godata", "dhis2"].indexOf(programMapping.dataSource) !== -1 &&
+    mySchema.safeParse(programMapping.authentication?.url).success === true;
+
+const hasLogins = (programMapping: Partial<IProgramMapping>) => {
+    return (
+        programMapping.authentication.basicAuth &&
+        !isEmpty(programMapping.authentication.username) &&
+        !isEmpty(programMapping.authentication.password)
+    );
+};
+
+const hasRemote = (programMapping: Partial<IProgramMapping>) => {
+    return (
+        ["godata", "dhis2"].indexOf(programMapping.dataSource) !== -1 &&
+        !isEmpty(programMapping.remoteProgram)
+    );
+};
+
+const hasProgram = (programMapping: Partial<IProgramMapping>) =>
+    !isEmpty(programMapping.program);
+
+const hasOrgUnitColumn = (programMapping: Partial<IProgramMapping>) =>
+    !isEmpty(programMapping.orgUnitColumn);
+
+const createEnrollment = (programMapping: Partial<IProgramMapping>) => {
+    if (programMapping.createEnrollments) {
+        return (
+            !isEmpty(programMapping.enrollmentDateColumn) &&
+            !isEmpty(programMapping.incidentDateColumn)
+        );
+    }
+    return true;
+};
+
+const hasOrgUnitMapping = (
+    programMapping: Partial<IProgramMapping>,
+    organisationUnitMapping: Mapping
+) =>
+    createEnrollment(programMapping) &&
+    Object.values(organisationUnitMapping).flatMap(({ value }) => {
+        if (value) {
+            return value;
+        }
+        return [];
+    }).length > 0;
+
+// const mandatoryAttributesMapped = (
+//     programMapping: Partial<IProgramMapping>,
+//     programStageMapping: StageMapping,
+//     attributeMapping: Mapping,
+//     organisationUnitMapping: Mapping,
+//     step: number,
+//     mySchema: z.ZodSchema
+// ) => {
+//     return !validURL(programMapping, step, mySchema);
+// };
+
 export const isDisabled = (
     programMapping: Partial<IProgramMapping>,
+    programStageMapping: StageMapping,
+    attributeMapping: Mapping,
+    organisationUnitMapping: Mapping,
     step: number,
     mySchema: z.ZodSchema
 ) => {
-    if (
-        programMapping.dataSource === "api" &&
-        step === 2 &&
-        mySchema.safeParse(programMapping.authentication?.url).success === false
-    ) {
-        return true;
+    if (step === 1) {
+        return !hasProgram(programMapping);
+    }
+
+    if (step === 2) {
+        return (
+            !validURL(programMapping, mySchema) ||
+            !hasLogins(programMapping) ||
+            !hasRemote(programMapping)
+        );
+    }
+
+    if (step === 3) {
+        return (
+            !hasOrgUnitColumn(programMapping) ||
+            !createEnrollment(programMapping)
+        );
+    }
+    if (step === 4) {
+        return !hasOrgUnitMapping(programMapping, organisationUnitMapping);
     }
     return false;
 };
