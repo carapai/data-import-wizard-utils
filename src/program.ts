@@ -1,3 +1,4 @@
+import axios from "axios";
 import { format, parseISO } from "date-fns/fp";
 import { Dictionary } from "lodash";
 import {
@@ -11,28 +12,26 @@ import {
     update,
 } from "lodash/fp";
 import { z } from "zod";
-import axios from "axios";
 
-import { generateUid } from "./uid";
+import { GO_DATA_DEFAULT_FIELDS } from "./constants";
 import {
     Attribute,
+    Authentication,
+    DHIS2OrgUnit,
     DataValue,
     Enrollment,
     Event,
+    IGoData,
     IProgram,
     IProgramMapping,
     IProgramStage,
     Mapping,
-    TrackedEntityInstance,
-    StageMapping,
     Option,
+    StageMapping,
+    TrackedEntityInstance,
     ValueType,
-    Authentication,
-    IGoData,
-    DHIS2OrgUnit,
 } from "./interfaces";
-import { createOptions } from "./utils";
-import { GO_DATA_DEFAULT_FIELDS } from "./constants";
+import { generateUid } from "./uid";
 
 export const stepLabels: { [key: number]: string } = {
     0: "Create New Mapping",
@@ -882,7 +881,13 @@ const getAttributes = (program: Partial<IProgram>): Array<Option> => {
                 code,
                 unique,
                 optionSetValue,
-                options: optionSet?.options || [],
+                options:
+                    optionSet?.options.map(({ code, id, name }) => ({
+                        label: name,
+                        code,
+                        value: code,
+                        id,
+                    })) || [],
             };
         }
     );
@@ -911,7 +916,8 @@ export const makeMetadata = (
     programStageMapping: StageMapping,
     attributeMapping: Mapping,
     remoteOrganisations: any[],
-    goData: Partial<IGoData>
+    goData: Partial<IGoData>,
+    tokens: Dictionary<string> = {}
 ) => {
     const destinationOrgUnits = getOrgUnits(program);
     const destinationAttributes = getAttributes(program);
@@ -991,23 +997,48 @@ export const makeMetadata = (
                 return { label, value };
             });
         }
-        const attributes = createOptions(GO_DATA_DEFAULT_FIELDS);
+        const attributes = GO_DATA_DEFAULT_FIELDS.map(
+            ({ name, label, mandatory, unique, options, optionSetValue }) => ({
+                mandatory,
+                label,
+                value: name,
+                unique,
+                options,
+                optionSetValue,
+            })
+        );
         if (goData && goData.caseInvestigationTemplate) {
             columns = goData.caseInvestigationTemplate.flatMap(
-                ({ variable, required, multiAnswer, answers, answerType }) => {
+                ({
+                    variable,
+                    required,
+                    multiAnswer,
+                    answers,
+                    answerType,
+                    text,
+                }) => {
                     const opt: Option = {
-                        label: variable,
+                        label: tokens[text] || variable,
                         value: variable,
                         mandatory: required,
+                        options: answers.map(({ value, label }) => ({
+                            value,
+                            label: label,
+                            name: value,
+                            code: "",
+                            id: value,
+                        })),
+                        optionSetValue: answers.length > 0,
                     };
+
                     return [
                         opt,
                         ...answers.flatMap(({ additionalQuestions }) => {
                             if (additionalQuestions) {
                                 return additionalQuestions.map(
-                                    ({ variable }) => {
+                                    ({ variable, text }) => {
                                         return {
-                                            label: variable,
+                                            label: tokens[text] || variable,
                                             value: variable,
                                         };
                                     }
@@ -1389,18 +1420,43 @@ export const flattenProgram = (program: Partial<IProgram>): Array<Option> => {
     if (!isEmpty(program)) {
         const { programTrackedEntityAttributes, programStages } = program;
         const attributes = programTrackedEntityAttributes.map(
-            ({ trackedEntityAttribute: { id, name } }) => {
-                const option: Option = { label: name, value: id };
+            ({
+                trackedEntityAttribute: { id, name, optionSetValue, optionSet },
+            }) => {
+                const option: Option = {
+                    label: name,
+                    value: id,
+                    optionSetValue,
+                    options:
+                        optionSet?.options.map(({ code, id, name }) => ({
+                            label: name,
+                            code,
+                            value: code,
+                            id,
+                        })) || [],
+                };
                 return option;
             }
         );
         const elements = programStages.flatMap(
             ({ id: stageId, name: stageName, programStageDataElements }) => {
                 const dataElements = programStageDataElements.map(
-                    ({ dataElement: { id, name } }) => {
+                    ({
+                        dataElement: { id, name, optionSetValue, optionSet },
+                    }) => {
                         const option: Option = {
                             label: `${stageName}-${name}`,
                             value: `${stageId}.${id}`,
+                            optionSetValue: optionSetValue || false,
+                            options:
+                                optionSet?.options.map(
+                                    ({ code, id, name }) => ({
+                                        label: name,
+                                        code,
+                                        value: code,
+                                        id,
+                                    })
+                                ) || [],
                         };
                         return option;
                     }

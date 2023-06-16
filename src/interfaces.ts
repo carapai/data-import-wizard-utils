@@ -275,8 +275,8 @@ export interface OptionSet {
 
 export interface IDataElement extends CommonIdentifier {
     displayName: string;
-    optionSet: boolean;
-    optionSetValue: string;
+    optionSet: OptionSet;
+    optionSetValue: boolean;
     valueType: keyof typeof ValueType;
     zeroIsSignificant: boolean;
 }
@@ -321,6 +321,7 @@ export interface RealMapping {
     eventIdColumn: string;
     stage: string;
     eventIdColumnIsManual: boolean;
+    isSpecific: boolean;
 }
 
 export interface Mapping {
@@ -425,7 +426,7 @@ export interface Option extends OptionBase {
     unique?: boolean;
     optionSetValue?: boolean;
     mandatory?: boolean;
-    options?: CommonIdentifier[];
+    options?: Option[];
 }
 
 export interface IGoData {
