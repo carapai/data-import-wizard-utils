@@ -1,6 +1,10 @@
 import { z } from "zod";
 import { OptionBase } from "chakra-react-select";
 
+export interface DHIS2Options {
+    programStage: string[];
+    prefetch: boolean;
+}
 export interface IMapping {
     id: string;
     name: string;
@@ -88,31 +92,13 @@ export interface Authentication {
 
 export interface IProgramMapping extends IMapping {
     program: string;
-    // id: string;
-    // name: string;
-    // displayName: string;
-    // lastUpdated: any;
     programType: string;
-
-    // programStages: IProgramStage[];
-    // categoryCombo: string;
-    // programTrackedEntityAttributes: any;
     trackedEntityType: string;
-    // trackedEntity: string;
-    // mappingId: string;
-    // isRunning: boolean;
     orgUnitColumn: string;
-    manuallyMapOrgUnitColumn: boolean;
-    manuallyMapEnrollmentDateColumn: boolean;
-    manuallyMapIncidentDateColumn: boolean;
+    customOrgUnitColumn: boolean;
+    customEnrollmentDateColumn: boolean;
+    customIncidentDateColumn: boolean;
     orgUnitsUploaded: boolean;
-    // orgUnitStrategy: {
-    //     value: "auto";
-    //     label: "auto";
-    // };
-    // organisationUnits: IOrganisationUnit[];
-    // headerRow: 1;
-    // dataStartRow: 2;
     createEnrollments: boolean;
     createEntities: boolean;
     updateEntities: boolean;
@@ -127,91 +113,27 @@ export interface IProgramMapping extends IMapping {
     trackedEntityInstanceColumnIsManual: boolean;
     remoteOrgUnitLabelField: string;
     remoteOrgUnitValueField: string;
+    onlyEnrollOnce: boolean;
     metadataOptions: {
         labelField: string;
         valueField: string;
-        metadata: any[];
+        metadata: Option[];
         sourceType: "api" | "upload";
         idField: string;
         requiredField: string;
         dhis2: string;
         mapper: string;
     };
-
-    // dateFilter: string;
-    // dateEndFilter: string;
-    // lastRun: string;
-    // uploaded: string;
-    // uploadMessage: string;
-    // page: number;
-    // rowsPerPage: number;
-    // dialogOpen: false;
-    // orderBy: "mandatory";
-    // order: "desc";
-    // attributesFilter: string;
-
-    // trackedEntityInstances: [];
-    // fetchingEntities: 0;
-
-    // responses: any[];
-
-    // increment: 0;
-
-    // errors: any[];
-    // conflicts: any[];
-    // duplicates: any[];
-
-    // longitudeColumn: string;
-    // latitudeColumn: string;
-
-    // pulling: boolean;
-
-    // workbook: null;
-
-    // selectedSheet: null;
-
-    // pulledData: null;
-
-    // sheets: any[];
-
+    dhis2Options: Partial<DHIS2Options>;
+    withoutRegistration: boolean;
     dataSource: "xlsx" | "dhis2" | "api" | "csv" | "json" | "godata";
-
-    // scheduleTime: 0;
-
-    // percentages: any[];
-
-    // total: number;
-    // displayProgress: boolean;
-
-    // username: string;
-    // password: string;
-    // params: any[];
     responseKey: string;
-    // fileName: string;
-    // mappingName: string;
-    // mappingDescription: string;
-    // templateType: string;
-    // sourceOrganisationUnits: [];
-    // message: string;
-    // incidentDateProvided: boolean;
-    // processed: boolean;
-    // data: [];
-    // isUploadingFromPage: boolean;
-
-    // selectIncidentDatesInFuture: string;
-    // selectEnrollmentDatesInFuture: string;
-    isDHIS2: boolean;
-    // attributes: boolean;
-    // remotePrograms: [];
     remoteProgram: string;
-    // remoteId: string;
     orgUnitSource: "api" | "manual" | "default";
-    // enrollments: boolean;
-    // events: boolean;
-    // remoteStage: string;
-    // remoteTrackedEntityTypes: {};
     created: string;
     lastUpdated: string;
+    selectIncidentDatesInFuture: boolean;
+    selectEnrollmentDatesInFuture: boolean;
 }
 
 export interface IProgramStage {
@@ -321,7 +243,7 @@ export interface RealMapping {
     eventIdColumn: string;
     stage: string;
     eventIdColumnIsManual: boolean;
-    isSpecific: boolean;
+    specific: boolean;
 }
 
 export interface Mapping {
@@ -426,7 +348,7 @@ export interface Option extends OptionBase {
     unique?: boolean;
     optionSetValue?: boolean;
     mandatory?: boolean;
-    options?: Option[];
+    availableOptions?: Option[];
 }
 
 export interface IGoData {
@@ -470,6 +392,11 @@ export interface IGoData {
     createdOn: string;
     deleted: boolean;
     locations: any[];
+    intervalOfFollowUp: string;
+    eventIdMask: string;
+    checkLastContactDateAgainstDateOnSet: boolean;
+    disableModifyingLegacyQuestionnaire: boolean;
+    dbUpdatedAt: string;
 }
 
 interface ArcGisServer {
@@ -480,7 +407,7 @@ interface ArcGisServer {
     styleUrlSource: string;
 }
 
-interface CaseInvestigationTemplate {
+export interface CaseInvestigationTemplate {
     multiAnswer: boolean;
     inactive: boolean;
     text: string;
@@ -638,7 +565,7 @@ export interface GODataOption {
 export interface ISchedule {
     id: string;
     name: string;
-    type: string;
+    type: "aggregate" | "tracker";
     schedule: string;
     createdAt: string;
     nextRun: string;
@@ -647,8 +574,23 @@ export interface ISchedule {
     schedulingSeverURL: string;
     description: string;
     immediate: boolean;
-    upstream: string;
     mapping: string;
     updatedAt: string;
     status: "scheduled" | "running" | "stopped" | "created";
+    url: string;
+}
+
+export interface FlattenedEvent {
+    [x: string]: string | number | boolean;
+    event: string;
+    trackedEntityInstance: string;
+    deleted: boolean;
+    trackedEntityType: string;
+    orgUnit: string;
+    enrollmentDate: string;
+    incidentDate: string;
+    enrollment: string;
+    programStage: string;
+    program: string;
+    orgUnitName: string;
 }

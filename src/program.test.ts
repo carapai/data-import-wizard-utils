@@ -2,7 +2,7 @@ import { expect, test } from "vitest";
 import { data } from "./dhis2";
 import { Mapping } from "./interfaces";
 import { outbreak } from "./outbreak";
-import { convertToGoData } from "./program";
+import { convertToGoData, flattenGoData, makeMetadata } from "./program";
 
 const organisationMapping: Mapping = {
     NREoMszwQZW: {
@@ -28,12 +28,9 @@ const attributeMapping: Mapping = {
     },
 };
 
-test("Can insert data", () => {
-    const finalData = convertToGoData(
-        data,
-        organisationMapping,
-        attributeMapping,
-        outbreak
-    );
-    expect(finalData.length).toBe(2);
+test("Make data", () => {
+    const template = outbreak.caseInvestigationTemplate;
+    const flattened = flattenGoData(template);
+    console.log(flattened);
+    expect(template.length).toBe(25);
 });

@@ -1,6 +1,35 @@
+import axios from "axios";
 import { groupBy, max } from "lodash/fp";
 import { Authentication, IGoDataOrgUnit, Option, Param } from "./interfaces";
-import { makeRemoteApi } from "./program";
+
+export const makeRemoteApi = (
+    authentication: Partial<Authentication> | undefined
+) => {
+    let params = new URLSearchParams();
+    Object.values(authentication?.params || {}).forEach(({ param, value }) => {
+        if (param && value) {
+            params.append(param, value);
+        }
+    });
+    if (
+        authentication?.basicAuth &&
+        authentication?.username &&
+        authentication?.password
+    ) {
+        return axios.create({
+            baseURL: authentication.url,
+            auth: {
+                username: authentication.username,
+                password: authentication.password,
+            },
+            params,
+        });
+    }
+    return axios.create({
+        baseURL: authentication?.url || "",
+        params,
+    });
+};
 
 export const createOptions = (options: string[]): Option[] => {
     return options.map((label) => {
@@ -43,7 +72,7 @@ export const fetchRemote = async <IData>(
 ) => {
     const api = makeRemoteApi({
         ...authentication,
-        params: { ...authentication?.params, ...params },
+        params: { ...(authentication?.params || {}), ...params },
     });
     const { data } = await api.get<IData>(url);
     return data;
