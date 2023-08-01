@@ -1,18 +1,23 @@
 import { format, parseISO } from "date-fns/fp";
-import { Dictionary } from "lodash";
+import { Dictionary, maxBy, minBy } from "lodash";
 import {
     chunk,
     fromPairs,
-    get,
     getOr,
     groupBy,
     isEmpty,
+    set,
     uniqBy,
     update,
 } from "lodash/fp";
 import { z } from "zod";
 
-import { GO_DATA_DEFAULT_FIELDS } from "./constants";
+import { AxiosInstance } from "axios";
+import {
+    GO_DATA_EPIDEMIOLOGY_FIELDS,
+    GO_DATA_EVENTS_FIELDS,
+    GO_DATA_PERSON_FIELDS,
+} from "./constants";
 import {
     CaseInvestigationTemplate,
     DHIS2OrgUnit,
@@ -20,6 +25,7 @@ import {
     Enrollment,
     Event,
     FlattenedEvent,
+    FlattenedInstance,
     IGoData,
     IProgram,
     IProgramMapping,
@@ -31,7 +37,7 @@ import {
     ValueType,
 } from "./interfaces";
 import { generateUid } from "./uid";
-import { AxiosInstance } from "axios";
+import { compareArrays, mergeArrays } from "./utils";
 
 export const stepLabels: { [key: number]: string } = {
     0: "Create New Mapping",
@@ -50,46 +56,6 @@ const parseAndFormatDate = (date: string) => {
     if (Number.isNaN(parsedDate)) {
         return new Date(parsedDate);
     }
-};
-
-export const compareArrays = <TData>(
-    source: TData[],
-    destination: TData[],
-    key: keyof TData
-) => {
-    const sourceKeys = source
-        .map((val) => get(key, val))
-        .sort()
-        .join();
-    const sourceValues = source
-        .map((val) => get("value", val))
-        .sort()
-        .join();
-    const destinationKeys = destination
-        .map((val) => get(key, val))
-        .sort()
-        .join();
-    const destinationValues = destination
-        .map((val) => get("value", val))
-        .sort()
-        .join();
-    return sourceKeys === destinationKeys && sourceValues === destinationValues;
-};
-
-export const mergeArrays = <TData>(
-    source: TData[],
-    destination: TData[],
-    key: string
-) => {
-    const sources = source.map((val: TData) => [get(key, val), val]);
-    let destinations = fromPairs<TData>(
-        destination.map((val) => [get(key, val), val])
-    );
-
-    sources.forEach(([key, value]) => {
-        destinations = { ...destinations, [key]: value };
-    });
-    return Object.values(destinations);
 };
 
 const processEvents = (
@@ -131,7 +97,7 @@ const processEvents = (
                 uniqueColumns = [...uniqueColumns, eventIdColumn];
             }
 
-            if (uniqueColumns.length) {
+            if (uniqueColumns.length > 0) {
                 currentData = groupBy(
                     (item: any) =>
                         uniqueColumns.map((column) => {
@@ -234,7 +200,7 @@ const processEvents = (
 };
 
 export const convertFromDHIS2 = async (
-    data: any,
+    data: Array<Partial<FlattenedInstance>>,
     programMapping: Partial<IProgramMapping>,
     organisationUnitMapping: Mapping,
     attributeMapping: Mapping,
@@ -246,34 +212,34 @@ export const convertFromDHIS2 = async (
             return [value, option];
         })
     );
-    return data.map((instanceData: any) => {
+    return data.map((instanceData) => {
         let obj: { [key: string]: any } = {};
 
         if (programMapping.orgUnitColumn) {
             update(
                 programMapping.orgUnitColumn,
-                () => organisationUnitMapping[instanceData["orgUnit"]].value,
+                () => organisationUnitMapping[instanceData.orgUnit],
                 obj
             );
         }
         if (programMapping.incidentDateColumn) {
             update(
                 programMapping.incidentDateColumn,
-                () => instanceData["incidentDate"],
+                () => instanceData.enrollment.incidentDate,
                 obj
             );
         }
         if (programMapping.enrollmentDateColumn) {
             update(
                 programMapping.enrollmentDateColumn,
-                () => instanceData["enrollmentDate"],
+                () => instanceData.enrollment.enrollmentDate,
                 obj
             );
         }
         if (programMapping.trackedEntityInstanceColumn) {
             update(
                 programMapping.trackedEntityInstanceColumn,
-                () => instanceData["trackedEntityInstance"],
+                () => instanceData.trackedEntityInstance,
                 obj
             );
         }
@@ -303,53 +269,51 @@ export const convertFromDHIS2 = async (
 };
 
 export const convertToGoData = (
-    data: { trackedEntityInstances: Array<Partial<TrackedEntityInstance>> },
+    data: Array<Partial<FlattenedInstance>>,
     organisationUnitMapping: Mapping,
     attributeMapping: Mapping,
-    goData: Partial<IGoData>,
-    previousData: any[] = []
+    goData: Partial<IGoData>
 ) => {
+    const attributes = goData.caseInvestigationTemplate.map(({ variable }) => {
+        return variable;
+    });
     const flippedUnits = fromPairs(
         Object.entries(organisationUnitMapping).map(([unit, value]) => {
             return [value.value, unit];
         })
     );
-    const flattenedData = flattenTrackedEntityInstances(data);
-    const attributes = goData.caseInvestigationTemplate.map(({ variable }) => {
-        return variable;
-    });
-
-    return flattenedData.flatMap((instanceData) => {
+    return data.map((instanceData, index) => {
         let questionnaireAnswers: { [key: string]: Array<{ value: any }> } = {};
-
         let obj: { [key: string]: any } = {};
-        // Object.entries(attributeMapping).forEach(([attribute, mapping]) => {
-        //     if (mapping.value && attributes.indexOf(attribute) !== -1) {
-        //        const actualValue = instanceData[mapping.value];
-        //        if (actualValue) {
-        //           questionnaireAnswers = {
-        //               ...questionnaireAnswers,
-        //               [attribute]: actualValue,
-        //           };
-        //        }
-
-        //     } else {
-        //         if (attribute.indexOf(".") !== -1) {
-        //             const value = set(
-        //                 attribute,
-        //                 firstRecord[mapping.value],
-        //                 {}
-        //             );
-        //             obj = { ...obj, ...value };
-        //         } else {
-        //             obj = { ...obj, [attribute]: firstRecord[mapping.value] };
-        //         }
-        //     }
-        // });
-        return { ...obj, questionnaireAnswers };
+        if (index === 0) {
+            console.log(instanceData);
+        }
+        const organisation = set(
+            "addresses[0].locationId",
+            flippedUnits[getOr("", "orgUnit", instanceData)] || "",
+            {}
+        );
+        Object.entries(attributeMapping).forEach(([attribute, mapping]) => {
+            if (mapping.value && attributes.indexOf(attribute) !== -1) {
+                const actualValue = getOr("", mapping.value, instanceData);
+                if (actualValue) {
+                    questionnaireAnswers = {
+                        ...questionnaireAnswers,
+                        [attribute]: [{ value: actualValue }],
+                    };
+                }
+            } else if (mapping.value) {
+                const value = set(
+                    attribute,
+                    getOr("", mapping.value, instanceData),
+                    {}
+                );
+                obj = { ...obj, ...value };
+            }
+        });
+        return { ...obj, questionnaireAnswers, ...organisation };
     });
 };
-
 export const convertToDHIS2 = async (
     previousData: {
         attributes: Dictionary<Array<{ attribute: string; value: string }>>;
@@ -377,6 +341,8 @@ export const convertToDHIS2 = async (
     const uniqStageElements = programStageUniqElements(programStageMapping);
     const uniqColumns = programUniqColumns(attributeMapping);
     const uniqStageColumns = programStageUniqColumns(programStageMapping);
+    let errors: any[] = [];
+    let conflicts: any[] = [];
     const {
         onlyEnrollOnce,
         selectEnrollmentDatesInFuture,
@@ -421,23 +387,22 @@ export const convertToDHIS2 = async (
     const incidentDateColumn = programMapping.incidentDateColumn || "";
     let groupedData: Dictionary<any[]> = {};
 
-    if (data) {
+    if (uniqColumns.length > 0) {
+        groupedData = groupBy(
+            (item: any) =>
+                uniqColumns
+                    .map((column) => getOr("", column, item))
+                    .sort()
+                    .join(""),
+            data
+        );
+    } else {
         groupedData = groupBy(
             "id",
             data.map((d) => {
                 return { id: generateUid(), ...d };
             })
         );
-        if (uniqColumns.length > 0) {
-            groupedData = groupBy(
-                (item: any) =>
-                    uniqColumns
-                        .map((column) => getOr("", column, item))
-                        .sort()
-                        .join(""),
-                data
-            );
-        }
     }
     const processed = Object.entries(groupedData).flatMap(
         ([uniqueKey, current]) => {
@@ -473,7 +438,7 @@ export const convertToDHIS2 = async (
                 previousData.attributes
             );
             const currentAttributes = Object.entries(attributeMapping).flatMap(
-                ([attribute, { value, specific }]) => {
+                ([attribute, { value, specific, valueType }]) => {
                     if (specific) {
                         return { attribute, value };
                     }
@@ -734,106 +699,56 @@ export const processPreviousInstances = (
     };
 };
 
-export const flattenEvents = (events: Event[]) => {
-    return events.map(
-        ({
-            eventDate,
-            orgUnitName,
-            orgUnit,
-            trackedEntityInstance,
-            enrollment,
-            status,
-            dataValues,
-            event,
-            deleted,
-            dueDate,
-            lastUpdated,
+const flattenEvent = ({
+    dataValues,
+    programStage,
+    enrollment,
+    ...rest
+}: Partial<Event>): Partial<FlattenedEvent> => {
+    return {
+        [programStage]: {
+            ...rest,
             programStage,
-            program,
-        }) => ({
-            eventDate,
-            orgUnitName,
-            orgUnit,
-            trackedEntityInstance,
-            enrollment,
-            status,
-            event,
-            deleted,
-            dueDate,
-            lastUpdated,
-            trackedEntityType: "",
-            enrollmentDate: "",
-            incidentDate: "",
-            programStage,
-            program,
-            ...fromPairs(
-                dataValues.map(({ dataElement, value }) => [
-                    `${programStage}.${dataElement}`,
-                    value,
-                ])
+            values: fromPairs(
+                dataValues.map(({ dataElement, value }) => [dataElement, value])
             ),
-        })
-    );
+        },
+    };
 };
+
+export const flattenEvents = (
+    events: Array<Partial<Event>>
+): Array<Partial<FlattenedInstance>> =>
+    events.map((e) => ({ last: flattenEvent(e) }));
 
 export const flattenTrackedEntityInstances = (response: {
     trackedEntityInstances: Array<Partial<TrackedEntityInstance>>;
-}) => {
+}): Array<Partial<FlattenedInstance>> => {
     return response.trackedEntityInstances.map(
-        ({
-            attributes,
-            trackedEntityInstance,
-            enrollments,
-            orgUnit,
-            deleted,
-            trackedEntityType,
-        }) => {
+        ({ attributes, enrollments, ...otherAttributes }) => {
             const attributeValues = fromPairs(
-                attributes.map(({ attribute, value }) => [
-                    `${attribute}`,
-                    value,
-                ])
+                attributes.map(({ attribute, value }) => [attribute, value])
             );
-            const foundEvents = enrollments.flatMap(
-                ({
-                    events,
-                    enrollmentDate,
-                    incidentDate,
-                    program,
-                    orgUnit,
-                    orgUnitName,
-                }) => {
-                    if (events.length > 0) {
-                        return flattenEvents(events).map((event) => ({
-                            ...event,
-                            ...attributeValues,
-                        }));
-                    }
-                    return {
-                        enrollmentDate,
-                        incidentDate,
-                        program,
-                        orgUnit,
-                        orgUnitName,
-                        deleted,
-                        eventDate: "",
-                        trackedEntityInstance,
-                        enrollment: "",
-                        status: "",
-                        event: "",
-                        dueDate: "",
-                        lastUpdated: "",
-                        programStage: "",
-                    };
-                }
-            );
-            return {
-                ...attributeValues,
-                orgUnit,
-                trackedEntityType,
-                trackedEntityInstance,
-                events: foundEvents,
+            let current: Partial<FlattenedInstance> = {
+                ...otherAttributes,
+                attribute: attributeValues,
             };
+            let first = {};
+            let last = {};
+            if (enrollments.length > 0) {
+                const [{ events, ...enrollmentData }] = enrollments;
+                current = { ...current, enrollment: enrollmentData };
+                Object.entries(groupBy("programStage", events)).forEach(
+                    ([_, currentEvents]) => {
+                        const currentLast = maxBy(currentEvents, "eventDate");
+                        const currentFirst = minBy(currentEvents, "eventDate");
+                        first = { ...first, ...flattenEvent(currentFirst) };
+                        last = { ...last, ...flattenEvent(currentLast) };
+                    }
+                );
+            }
+
+            return { ...current, first, last };
         }
     );
 };
@@ -995,15 +910,25 @@ export const findUniqAttributes = (data: any[], attributeMapping: Mapping) => {
 };
 
 export const makeMetadata = (
-    programMapping: Partial<IProgramMapping>,
     program: Partial<IProgram>,
-    data: any[],
-    dhis2Program: Partial<IProgram>,
-    programStageMapping: StageMapping,
-    attributeMapping: Mapping,
-    remoteOrganisations: any[],
-    goData: Partial<IGoData>,
-    tokens: Dictionary<string> = {}
+    programMapping: Partial<IProgramMapping>,
+    {
+        data,
+        attributeMapping,
+        dhis2Program,
+        programStageMapping,
+        goData,
+        tokens,
+        remoteOrganisations,
+    }: Partial<{
+        data: any[];
+        dhis2Program: Partial<IProgram>;
+        programStageMapping: StageMapping;
+        attributeMapping: Mapping;
+        remoteOrganisations: any[];
+        goData: Partial<IGoData>;
+        tokens: Dictionary<string>;
+    }>
 ) => {
     const destinationOrgUnits = getOrgUnits(program);
     const destinationAttributes = getAttributes(program);
@@ -1026,6 +951,11 @@ export const makeMetadata = (
         sourceStages: Array<Option>;
         destinationStages: Array<Option>;
         uniqueAttributeValues: Array<{ attribute: string; value: string }>;
+        epidemiology: Array<Option>;
+        personal: Array<Option>;
+        questionnaire: Array<Option>;
+        events: Array<Option>;
+        lab: Array<Option>;
     } = {
         sourceOrgUnits: [],
         destinationOrgUnits,
@@ -1036,6 +966,11 @@ export const makeMetadata = (
         destinationStages,
         sourceStages: [],
         uniqueAttributeValues,
+        epidemiology: [],
+        personal: [],
+        questionnaire: [],
+        events: [],
+        lab: [],
     };
 
     if (programMapping.dataSource === "dhis2") {
@@ -1080,15 +1015,19 @@ export const makeMetadata = (
                 return { label, value };
             });
         }
-        const attributes = GO_DATA_DEFAULT_FIELDS;
-        columns = [...attributes, ...columns];
+        const attributes = [
+            ...GO_DATA_PERSON_FIELDS,
+            ...GO_DATA_EPIDEMIOLOGY_FIELDS,
+            ...GO_DATA_EVENTS_FIELDS,
+        ];
+        let investigationTemplate = [];
         if (goData && goData.caseInvestigationTemplate) {
-            columns = [
-                ...columns,
-                ...flattenGoData(goData.caseInvestigationTemplate, tokens),
-            ];
+            investigationTemplate = flattenGoData(
+                goData.caseInvestigationTemplate,
+                tokens
+            );
         }
-
+        columns = [...attributes, ...columns, ...investigationTemplate];
         if (programMapping.isSource) {
             results = {
                 ...results,
@@ -1096,10 +1035,40 @@ export const makeMetadata = (
                 sourceOrgUnits: results.destinationOrgUnits,
                 sourceAttributes: results.destinationAttributes,
                 sourceColumns: results.destinationColumns,
-                destinationColumns: columns,
+                destinationColumns: columns.sort((a, b) => {
+                    if (a.mandatory && !b.mandatory) {
+                        return -1;
+                    } else if (!a.mandatory && b.mandatory) {
+                        return 1;
+                    }
+                    return 0;
+                }),
                 destinationAttributes: attributes,
                 destinationStages: [],
                 sourceStages: results.destinationStages,
+                epidemiology: GO_DATA_EPIDEMIOLOGY_FIELDS.sort((a, b) => {
+                    if (a.mandatory && !b.mandatory) {
+                        return -1;
+                    } else if (!a.mandatory && b.mandatory) {
+                        return 1;
+                    }
+                    return 0;
+                }),
+                personal: GO_DATA_PERSON_FIELDS.sort((a, b) => {
+                    if (a.mandatory && !b.mandatory) {
+                        return -1;
+                    } else if (!a.mandatory && b.mandatory) {
+                        return 1;
+                    }
+                    return 0;
+                }),
+                events: uniqBy("value", [
+                    ...attributes.filter(
+                        ({ entity }) => entity && entity.indexOf("EVENT") !== -1
+                    ),
+                    ...GO_DATA_EVENTS_FIELDS,
+                ]),
+                questionnaire: investigationTemplate,
             };
         } else {
             results = {
@@ -1178,9 +1147,7 @@ export const makeMetadata = (
 
 export const makeValidation = (state: Partial<IProgram>) => {
     const { programTrackedEntityAttributes, programStages } = state;
-    let attributes: z.ZodObject<{}, "strip", z.ZodTypeAny, {}, {}> = z.object(
-        {}
-    );
+    let attributes = z.object({});
     let elements: Dictionary<z.ZodObject<{}, "strip", z.ZodTypeAny, {}, {}>> =
         {};
     if (programTrackedEntityAttributes) {
@@ -1190,11 +1157,17 @@ export const makeValidation = (state: Partial<IProgram>) => {
                     agg,
                     {
                         mandatory,
-                        trackedEntityAttribute: { id, valueType, unique },
+                        trackedEntityAttribute: {
+                            id,
+                            valueType,
+                            unique,
+                            optionSetValue,
+                            optionSet,
+                        },
                     }
                 ) => {
                     let zodType = ValueType[valueType];
-                    if (!(mandatory || unique)) {
+                    if (!mandatory) {
                         zodType.optional();
                     }
                     return { ...agg, [id]: zodType };
@@ -1372,13 +1345,29 @@ const hasOrgUnitMapping = (
     }).length > 0;
 
 const mandatoryAttributesMapped = (
-    programMapping: Partial<IProgramMapping>,
-    programStageMapping: StageMapping,
-    attributeMapping: Mapping,
-    organisationUnitMapping: Mapping,
-    step: number,
-    mySchema: z.ZodSchema
-) => {};
+    destinationFields: Option[],
+    attributeMapping: Mapping
+) => {
+    const mandatoryFields = destinationFields.flatMap(
+        ({ mandatory, value }) => {
+            if (
+                mandatory &&
+                attributeMapping[value] &&
+                attributeMapping[value].value
+            ) {
+                return true;
+            } else if (mandatory) {
+                return false;
+            }
+            return [];
+        }
+    );
+
+    if (mandatoryFields.length > 0) {
+        return mandatoryFields.every((value) => value === true);
+    }
+    return true;
+};
 
 export const isDisabled = (
     programMapping: Partial<IProgramMapping>,
@@ -1386,7 +1375,8 @@ export const isDisabled = (
     attributeMapping: Mapping,
     organisationUnitMapping: Mapping,
     step: number,
-    mySchema: z.ZodSchema
+    mySchema: z.ZodSchema,
+    destinationFields: Option[]
 ) => {
     if (step === 1) {
         return !hasProgram(programMapping);
@@ -1394,21 +1384,34 @@ export const isDisabled = (
 
     if (step === 2) {
         return (
-            !validURL(programMapping, mySchema) ||
-            !hasLogins(programMapping) ||
-            !hasRemote(programMapping)
+            !validURL(programMapping, mySchema) || !hasLogins(programMapping)
         );
     }
 
-    // if (step === 3) {
-    //     return (
-    //         !hasOrgUnitColumn(programMapping) ||
-    //         !createEnrollment(programMapping)
-    //     );
-    // }
-    // if (step === 4) {
-    //     return !hasOrgUnitMapping(programMapping, organisationUnitMapping);
-    // }
+    if (
+        programMapping.isSource &&
+        programMapping.dataSource === "godata" &&
+        step === 3
+    ) {
+        return !hasRemote(programMapping);
+    }
+
+    if (step === 4 && ["godata", "dhis2"].indexOf(programMapping.dataSource)) {
+        return !(Object.keys(organisationUnitMapping).length > 0);
+    }
+    if (
+        programMapping.dataSource === "godata" &&
+        step === 5 &&
+        programMapping.isSource
+    ) {
+        return !mandatoryAttributesMapped(
+            destinationFields.filter(
+                ({ entity }) =>
+                    entity && entity.indexOf(programMapping.responseKey) !== -1
+            ),
+            attributeMapping
+        );
+    }
     return false;
 };
 
@@ -1441,7 +1444,7 @@ export const flattenProgram = (program: Partial<IProgram>): Array<Option> => {
             }) => {
                 const option: Option = {
                     label: name,
-                    value: id,
+                    value: `attribute.${id}`,
                     optionSetValue,
                     availableOptions:
                         optionSet?.options.map(({ code, id, name }) => ({
@@ -1462,7 +1465,7 @@ export const flattenProgram = (program: Partial<IProgram>): Array<Option> => {
                     }) => {
                         const option: Option = {
                             label: `${stageName}-${name}`,
-                            value: `${stageId}.${id}`,
+                            value: `last.${stageId}.values.${id}`,
                             optionSetValue: optionSetValue || false,
                             availableOptions:
                                 optionSet?.options.map(
@@ -1482,11 +1485,15 @@ export const flattenProgram = (program: Partial<IProgram>): Array<Option> => {
                     ...dataElements,
                     {
                         label: `${stageName}-Event`,
-                        value: `${stageId}.event`,
+                        value: `last.${stageId}.event`,
                     },
                     {
                         label: `${stageName}-Event Date`,
-                        value: `${stageId}.eventDate`,
+                        value: `last.${stageId}.eventDate`,
+                    },
+                    {
+                        label: `${stageName}-Event Due Date`,
+                        value: `last.${stageId}.dueDate`,
                     },
                 ];
             }
@@ -1508,11 +1515,11 @@ export const flattenProgram = (program: Partial<IProgram>): Array<Option> => {
             },
             {
                 label: "Enrollment Date",
-                value: "enrollmentDate",
+                value: "enrollment.enrollmentDate",
             },
             {
                 label: "Incident Date",
-                value: "incidentDate",
+                value: "enrollment.incidentDate",
             },
             ...elements,
         ];
@@ -1529,7 +1536,7 @@ const fetchStageEvents = async (
 ) => {
     let page = 1;
     let currentEvents = 0;
-    let allEvents: Array<FlattenedEvent> = [];
+    let allEvents: Array<Partial<Event>> = [];
     do {
         const params = new URLSearchParams({
             ouMode: "ALL",
@@ -1550,7 +1557,7 @@ const fetchStageEvents = async (
                     resource: `events.json?${params.toString()}`,
                 },
             });
-            allEvents = [...allEvents, ...flattenEvents(events)];
+            allEvents = [...allEvents, ...events];
             currentEvents = events.length;
         } else if (api.axios) {
             const {
@@ -1558,7 +1565,7 @@ const fetchStageEvents = async (
             } = await api.axios.get<{
                 events: Event[];
             }>(`events.json?${params.toString()}`);
-            allEvents = [...allEvents, ...flattenEvents(events)];
+            allEvents = [...allEvents, ...events];
             currentEvents = events.length;
         }
         page = page + 1;
@@ -1572,8 +1579,8 @@ export const fetchEvents = async (
     pageSize: number,
     program: string,
     others: { [key: string]: string } = {}
-) => {
-    let allEvents: Array<FlattenedEvent> = [];
+): Promise<Array<Partial<TrackedEntityInstance>>> => {
+    let allEvents: Array<Partial<Event>> = [];
     for (const programStage of programStages) {
         const currentEvents = await fetchStageEvents(
             api,
@@ -1582,29 +1589,35 @@ export const fetchEvents = async (
             pageSize,
             others
         );
-
         allEvents = [...allEvents, ...currentEvents];
     }
 
     const grouped = groupBy("trackedEntityInstance", allEvents);
 
-    const entities = await fetchTrackedEntityInstancesByIds(
-        api,
-        program,
-        Object.keys(grouped)
-    );
+    const keys = Object.keys(grouped).filter((k) => !isEmpty(k));
 
-    return Object.entries(entities).map(([instance, data]) => {
-        let results: { [key: string]: any } = data;
-        const events = grouped[instance];
-        const groupedByStage = groupBy("programStage", events);
-        Object.entries(groupedByStage).forEach(([stage, eventData]) => {
-            if (eventData.length > 0) {
-                results = { ...results, ...eventData[0] };
-            }
+    if (keys.length > 0) {
+        const entities = await fetchTrackedEntityInstancesByIds(
+            api,
+            program,
+            keys
+        );
+
+        return entities.map((instance) => {
+            const events = grouped[instance.trackedEntityInstance];
+            return {
+                ...instance,
+                enrollments: instance.enrollments?.map((e) => ({
+                    ...e,
+                    events,
+                })),
+            };
         });
-        return results;
-    });
+    } else {
+        return allEvents.map((events) => ({
+            enrollments: [{ events: [events] }],
+        }));
+    }
 };
 
 export const fetchTrackedEntityInstances = async (
@@ -1622,7 +1635,7 @@ export const fetchTrackedEntityInstances = async (
         page: number
     ) => Promise<any> = undefined
 ) => {
-    let foundInstances: Array<TrackedEntityInstance> = [];
+    let foundInstances: TrackedEntityInstance[] = [];
     if (withAttributes) {
         let page = 1;
         for (const attributeValues of chunk(50, uniqueAttributeValues)) {
@@ -1677,6 +1690,7 @@ export const fetchTrackedEntityInstances = async (
                     foundInstances = [
                         ...foundInstances,
                         ...trackedEntityInstances,
+                        ,
                     ];
                 }
             }
@@ -1742,12 +1756,12 @@ export const fetchTrackedEntityInstancesByIds = async (
     program: string,
     ids: string[]
 ) => {
-    let instances: Dictionary<Dictionary<string>> = {};
+    let instances: Array<Partial<TrackedEntityInstance>> = [];
     if (ids.length > 0) {
         for (const c of chunk(50, ids)) {
             const params = new URLSearchParams({
                 trackedEntityInstance: `${c.join(";")}`,
-                fields: "trackedEntityInstance,attributes,enrollments[enrollmentDate,enrollment,program,incidentDate]",
+                fields: "trackedEntityInstance,orgUnit,attributes,enrollments[enrollmentDate,enrollment,program,incidentDate]",
                 skipPaging: "true",
                 program,
                 ouMode: "ALL",
@@ -1774,50 +1788,7 @@ export const fetchTrackedEntityInstancesByIds = async (
                 currentInstances = trackedEntityInstances;
             }
 
-            const enrollment = fromPairs(
-                currentInstances.map(
-                    ({ enrollments, trackedEntityInstance }) => {
-                        const programEnrollment:
-                            | Partial<Enrollment>
-                            | undefined = enrollments.find(
-                            ({ program: currentProgram }) =>
-                                program === currentProgram
-                        );
-
-                        if (programEnrollment) {
-                            return [
-                                trackedEntityInstance,
-                                {
-                                    enrollmentDate:
-                                        programEnrollment.enrollmentDate,
-                                    incidentDate:
-                                        programEnrollment.incidentDate,
-                                },
-                            ];
-                        }
-                        return [trackedEntityInstance, {}];
-                    }
-                )
-            );
-            instances = {
-                ...instances,
-                ...fromPairs<Dictionary<string>>(
-                    currentInstances.map(
-                        ({ trackedEntityInstance, attributes }) => [
-                            trackedEntityInstance,
-                            {
-                                ...fromPairs<string>(
-                                    attributes.map(({ attribute, value }) => [
-                                        attribute || "",
-                                        value || "",
-                                    ])
-                                ),
-                                ...(enrollment[trackedEntityInstance] || {}),
-                            },
-                        ]
-                    )
-                ),
-            };
+            instances = [...instances, ...currentInstances];
         }
     }
     return instances;

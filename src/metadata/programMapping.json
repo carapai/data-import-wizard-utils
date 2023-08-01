@@ -1,0 +1,27 @@
+{
+    "id": "IqX8svi6sFD",
+    "name": "Example Mapping",
+    "description": "This an example mapping",
+    "trackedEntityType": "KWN8FUfvO5G",
+    "dataSource": "godata",
+    "isSource": true,
+    "authentication": {
+        "basicAuth": true,
+        "url": "https://go.sk-engine.cloud",
+        "username": "colupot@hispuganda.org",
+        "password": "Tesocollege77"
+    },
+    "prefetch": true,
+    "created": "2023-07-12 16:39:00",
+    "program": "o6TN8Sr45CZ",
+    "programType": "",
+    "manuallyMapOrgUnitColumn": true,
+    "orgUnitColumn": "orgUnit",
+    "createEnrollments": true,
+    "createEntities": true,
+    "updateEntities": true,
+    "incidentDateColumn": "dateOfOnset",
+    "enrollmentDateColumn": "dateOfOnset",
+    "remoteProgram": "bcd80e81-315b-4e34-af58-8ea8f8c1bc67",
+    "dhis2Options": { "programStage": ["ChsOd5Hb5hA"] }
+}

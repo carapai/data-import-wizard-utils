@@ -4,8 +4,9 @@
         "target": "ES2021",
         "module": "CommonJS",
         "declaration": true,
-        "esModuleInterop": true
+        "esModuleInterop": true,
         // "noImplicitAny": true
+        "resolveJsonModule": true
     },
     "include": ["src/**/*.ts"],
     "exclude": ["node_modules"]

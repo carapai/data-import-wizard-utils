@@ -1,5 +1,5 @@
 import axios from "axios";
-import { groupBy, max } from "lodash/fp";
+import { fromPairs, get, groupBy, max } from "lodash/fp";
 import { Authentication, IGoDataOrgUnit, Option, Param } from "./interfaces";
 
 export const makeRemoteApi = (
@@ -90,4 +90,44 @@ export const postRemote = async <IData>(
     });
     const { data } = await api.post<IData>(url, payload);
     return data;
+};
+
+export const compareArrays = <TData>(
+    source: TData[],
+    destination: TData[],
+    key: keyof TData
+) => {
+    const sourceKeys = source
+        .map((val) => get(key, val))
+        .sort()
+        .join();
+    const sourceValues = source
+        .map((val) => get("value", val))
+        .sort()
+        .join();
+    const destinationKeys = destination
+        .map((val) => get(key, val))
+        .sort()
+        .join();
+    const destinationValues = destination
+        .map((val) => get("value", val))
+        .sort()
+        .join();
+    return sourceKeys === destinationKeys && sourceValues === destinationValues;
+};
+
+export const mergeArrays = <TData>(
+    source: TData[],
+    destination: TData[],
+    key: string
+) => {
+    const sources = source.map((val: TData) => [get(key, val), val]);
+    let destinations = fromPairs<TData>(
+        destination.map((val) => [get(key, val), val])
+    );
+
+    sources.forEach(([key, value]) => {
+        destinations = { ...destinations, [key]: value };
+    });
+    return Object.values(destinations);
 };
