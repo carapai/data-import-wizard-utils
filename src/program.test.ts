@@ -10,6 +10,10 @@ import attributeMapping from "./metadata/attributeMapping.json";
 import organisationMapping from "./metadata/ouMapping.json";
 import godata from "./metadata/godata.json";
 import programMapping from "./metadata/programMapping.json";
+import categories from "./metadata/reference-data.json";
+import { set } from "lodash/fp";
+import { updateObject } from "./utils";
+import { groupBy } from "lodash";
 
 // const organisationMapping: Mapping = {
 //     NREoMszwQZW: {
@@ -36,12 +40,47 @@ import programMapping from "./metadata/programMapping.json";
 // };
 
 test("Make data", () => {
-    const response = convertToGoData(
-        data,
-        organisationMapping,
-        attributeMapping,
-        godata
-    );
+    // const response = convertToGoData(
+    //     data,
+    //     organisationMapping,
+    //     attributeMapping,
+    //     godata
+    // );
     // console.log(response);
+    expect(1).toBe(1);
+});
+
+test("Change Attribute", () => {
+    const mapping: Mapping = {};
+
+    // const obj = set<Mapping>("address[0].typeId", { value: "X" }, mapping);
+
+    const obj = updateObject(mapping, {
+        attribute: "address[0].typeId",
+        value: "X",
+        key: "value",
+    });
+
+    const obj2 = updateObject(obj, {
+        attribute: "address[0].typeId",
+        value: true,
+        key: "specific",
+    });
+    console.log(obj2);
+    expect(1).toBe(1);
+});
+
+test("Process categories", () => {
+    const processed = Object.entries(groupBy(categories, "Category")).map(
+        ([category, value]) => [
+            category,
+            value.map(({ Label, ID }) => ({
+                value: Label,
+                label: Label,
+                id: ID,
+            })),
+        ]
+    );
+    console.log(JSON.stringify(processed));
     expect(1).toBe(1);
 });

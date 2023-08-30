@@ -37,7 +37,7 @@ import {
     ValueType,
 } from "./interfaces";
 import { generateUid } from "./uid";
-import { compareArrays, mergeArrays } from "./utils";
+import { compareArrays, findDifference, mergeArrays } from "./utils";
 
 export const stepLabels: { [key: number]: string } = {
     0: "Create New Mapping",
@@ -272,7 +272,10 @@ export const convertToGoData = (
     data: Array<Partial<FlattenedInstance>>,
     organisationUnitMapping: Mapping,
     attributeMapping: Mapping,
-    goData: Partial<IGoData>
+    goData: Partial<IGoData>,
+    optionMapping: Record<string, string>,
+    tokens: Dictionary<string>,
+    previousData: any[]
 ) => {
     const attributes = goData.caseInvestigationTemplate.map(({ variable }) => {
         return variable;
@@ -282,37 +285,123 @@ export const convertToGoData = (
             return [value.value, unit];
         })
     );
-    return data.map((instanceData, index) => {
+    const flippedOptions = fromPairs(
+        Object.entries(optionMapping).map(([option, value]) => {
+            return [value, option];
+        })
+    );
+    let allAttributes = fromPairs<Option>(
+        [
+            ...GO_DATA_PERSON_FIELDS,
+            ...GO_DATA_EPIDEMIOLOGY_FIELDS,
+            ...GO_DATA_EVENTS_FIELDS,
+            ...flattenGoData(goData.caseInvestigationTemplate, tokens),
+        ].map((attribute) => [attribute.value, attribute])
+    );
+
+    let errors: any[] = [];
+    let conflicts: any[] = [];
+    let updates: any[] = [];
+    let inserts: any[] = [];
+    data.forEach((instanceData) => {
         let questionnaireAnswers: { [key: string]: Array<{ value: any }> } = {};
         let obj: { [key: string]: any } = {};
-        if (index === 0) {
-            console.log(instanceData);
-        }
-        const organisation = set(
-            "addresses[0].locationId",
-            flippedUnits[getOr("", "orgUnit", instanceData)] || "",
-            {}
-        );
+        let currentConflicts: any[] = [];
+        let currentErrors: any[] = [];
+        let currentValue: { [key: string]: any } = {};
         Object.entries(attributeMapping).forEach(([attribute, mapping]) => {
-            if (mapping.value && attributes.indexOf(attribute) !== -1) {
-                const actualValue = getOr("", mapping.value, instanceData);
-                if (actualValue) {
-                    questionnaireAnswers = {
-                        ...questionnaireAnswers,
-                        [attribute]: [{ value: actualValue }],
-                    };
+            const currentAttribute = allAttributes[attribute];
+            if (mapping.value) {
+                const validation = ValueType[mapping.valueType];
+                let value = getOr("", mapping.value, instanceData);
+                if (mapping.specific) {
+                    value = mapping.value;
                 }
-            } else if (mapping.value) {
-                const value = set(
-                    attribute,
-                    getOr("", mapping.value, instanceData),
-                    {}
-                );
-                obj = { ...obj, ...value };
+                let result: any = { success: true };
+                if (currentAttribute.optionSetValue) {
+                    value = flippedOptions[value] || value;
+                    if (
+                        currentAttribute.availableOptions.findIndex(
+                            (v: Option) =>
+                                v.code === value ||
+                                v.id === value ||
+                                v.value === value
+                        ) !== -1
+                    ) {
+                        result = { ...result, success: true };
+                    } else {
+                        result = { ...result, success: false };
+                    }
+                } else if (validation) {
+                    try {
+                        result = validation.parse(value);
+                        result = { ...result, success: true };
+                    } catch (error) {
+                        const { issues } = error;
+                        result = { ...issues[0], success: false };
+                        if (mapping.mandatory) {
+                            currentErrors = [
+                                ...currentErrors,
+                                ...issues.map((i: any) => ({
+                                    ...i,
+                                    value,
+                                    attribute,
+                                    valueType: mapping.valueType,
+                                })),
+                            ];
+                        } else {
+                            currentConflicts = [
+                                ...currentConflicts,
+                                ...issues.map((i: any) => ({
+                                    ...i,
+                                    value,
+                                    attribute,
+                                    valueType: mapping.valueType,
+                                })),
+                            ];
+                        }
+                    }
+                }
+                if (value && result.success) {
+                    if (attributes.indexOf(attribute) !== -1) {
+                        questionnaireAnswers = {
+                            ...questionnaireAnswers,
+                            [attribute]: [{ value }],
+                        };
+                    } else {
+                        if (mapping.isOrgUnit) {
+                            currentValue = set(
+                                attribute,
+                                flippedUnits[value] || "",
+                                currentValue
+                            );
+                        } else {
+                            currentValue = set(attribute, value, currentValue);
+                        }
+                        obj = { ...obj, ...currentValue };
+                    }
+                }
             }
         });
-        return { ...obj, questionnaireAnswers, ...organisation };
+        if (currentErrors.length === 0) {
+            const instance: { [key: string]: any } = {
+                ...obj,
+                questionnaireAnswers,
+            };
+            const prev = previousData.find(
+                (i: any) => i.visualId === instance.visualId
+            );
+            if (prev) {
+                updates = [...updates, { ...instance, id: prev.id }];
+            } else {
+                inserts = [...inserts, instance];
+            }
+        }
+        errors = [...errors, ...currentErrors];
+        conflicts = [...conflicts, ...currentConflicts];
     });
+
+    return { updates, inserts, errors, conflicts };
 };
 export const convertToDHIS2 = async (
     previousData: {
@@ -341,8 +430,6 @@ export const convertToDHIS2 = async (
     const uniqStageElements = programStageUniqElements(programStageMapping);
     const uniqColumns = programUniqColumns(attributeMapping);
     const uniqStageColumns = programStageUniqColumns(programStageMapping);
-    let errors: any[] = [];
-    let conflicts: any[] = [];
     const {
         onlyEnrollOnce,
         selectEnrollmentDatesInFuture,
@@ -406,18 +493,24 @@ export const convertToDHIS2 = async (
     }
     const processed = Object.entries(groupedData).flatMap(
         ([uniqueKey, current]) => {
+            let currentConflicts: any[] = [];
+            let currentErrors: any[] = [];
             let results: {
                 enrollments: Array<Partial<Enrollment>>;
                 trackedEntities: Array<Partial<TrackedEntityInstance>>;
                 events: Array<Partial<Event>>;
                 eventUpdates: Array<Partial<Event>>;
                 trackedEntityUpdates: Array<Partial<TrackedEntityInstance>>;
+                conflicts: any[];
+                errors: any[];
             } = {
                 enrollments: [],
                 trackedEntities: [],
                 events: [],
                 eventUpdates: [],
                 trackedEntityUpdates: [],
+                errors: [],
+                conflicts: [],
             };
             let previousTrackedEntity = getOr(
                 "",
@@ -437,13 +530,48 @@ export const convertToDHIS2 = async (
                 uniqueKey,
                 previousData.attributes
             );
+            console.log(flippedOptions);
             const currentAttributes = Object.entries(attributeMapping).flatMap(
-                ([attribute, { value, specific, valueType }]) => {
+                ([attribute, { value, specific, valueType, mandatory }]) => {
                     if (specific) {
                         return { attribute, value };
                     }
-                    const realValue = getOr("", value, current[0]);
-                    if (realValue) {
+                    const validation = ValueType[valueType];
+                    let realValue = getOr("", value, current[0]);
+                    realValue = flippedUnits[realValue] || realValue;
+
+                    let result: any = { success: true };
+                    if (validation) {
+                        try {
+                            result = validation.parse(realValue);
+                            result = { ...result, success: true };
+                        } catch (error) {
+                            const { issues } = error;
+                            result = { ...issues[0], success: false };
+                            if (mandatory) {
+                                currentErrors = [
+                                    ...currentErrors,
+                                    ...issues.map((i: any) => ({
+                                        ...i,
+                                        value,
+                                        attribute,
+                                        valueType,
+                                    })),
+                                ];
+                            } else {
+                                currentConflicts = [
+                                    ...currentConflicts,
+                                    ...issues.map((i: any) => ({
+                                        ...i,
+                                        value,
+                                        attribute,
+                                        valueType,
+                                    })),
+                                ];
+                            }
+                        }
+                    }
+                    if (realValue && result.success) {
                         return {
                             attribute,
                             value: flippedOptions[realValue] || realValue,
@@ -478,14 +606,17 @@ export const convertToDHIS2 = async (
                         ],
                     };
                 }
-            } else if (previousAttributes.length === 0 && createEntities) {
+            } else if (
+                previousAttributes.length === 0 &&
+                createEntities &&
+                currentErrors.length === 0
+            ) {
                 previousOrgUnit = getOr(
                     "",
                     getOr("", orgUnitColumn, current[0]),
                     flippedUnits
                 );
                 previousTrackedEntity = generateUid();
-
                 if (previousOrgUnit) {
                     results = {
                         ...results,
@@ -508,7 +639,6 @@ export const convertToDHIS2 = async (
                     current[0]
                 );
                 const incidentDate = getOr("", incidentDateColumn, current[0]);
-
                 if (previousOrgUnit && enrollmentDate && incidentDate) {
                     previousEnrollment = generateUid();
                     const enrollment = {
@@ -530,6 +660,7 @@ export const convertToDHIS2 = async (
                 }
             } else if (!isEmpty(previousEnrollment)) {
             }
+
             let events = [];
 
             if (
@@ -549,7 +680,12 @@ export const convertToDHIS2 = async (
                     flippedOptions
                 );
             }
-            results = { ...results, events };
+            results = {
+                ...results,
+                events,
+                conflicts: currentConflicts,
+                errors: currentErrors,
+            };
             return results;
         }
     );
@@ -558,6 +694,8 @@ export const convertToDHIS2 = async (
         ({ trackedEntities }) => trackedEntities
     );
     const enrollments = processed.flatMap(({ enrollments }) => enrollments);
+    const errors = processed.flatMap(({ errors }) => errors);
+    const conflicts = processed.flatMap(({ conflicts }) => conflicts);
     const events = processed.flatMap(({ events }) => events.flat());
     const trackedEntityInstanceUpdates = processed.flatMap(
         ({ trackedEntityUpdates }) => trackedEntityUpdates
@@ -571,6 +709,8 @@ export const convertToDHIS2 = async (
         enrollments,
         trackedEntityInstanceUpdates,
         eventUpdates,
+        errors,
+        conflicts,
     };
 };
 
@@ -674,7 +814,6 @@ export const processPreviousInstances = (
                             return [stage, availableEvents.map((e) => [e])];
                         }
                     );
-                    console.log(uniqueEvents);
                     currentElements.push([
                         attributeKey,
                         fromPairs(uniqueEvents),
@@ -1215,6 +1354,16 @@ export const programUniqAttributes = (attributeMapping: Mapping): string[] => {
     });
 };
 
+export const mandatoryAttributes = (attributeMapping: Mapping): string[] => {
+    return Object.entries(attributeMapping).flatMap(([attribute, mapping]) => {
+        const { unique, value, mandatory } = mapping;
+        if (unique && value && mandatory) {
+            return attribute;
+        }
+        return [];
+    });
+};
+
 export const programUniqColumns = (attributeMapping: Mapping): string[] => {
     return Object.entries(attributeMapping).flatMap(([_, mapping]) => {
         const { unique, value } = mapping;
@@ -1292,15 +1441,20 @@ const validURL = (
     programMapping: Partial<IProgramMapping>,
     mySchema: z.ZodSchema
 ) => {
-    return (
+    if (
         !isEmpty(programMapping.name) &&
-        ["api", "godata", "dhis2"].indexOf(programMapping.dataSource) !== -1 &&
-        mySchema.safeParse(programMapping.authentication?.url).success
-    );
+        ["api", "godata", "dhis2"].indexOf(programMapping.dataSource) !== -1
+    ) {
+        return mySchema.safeParse(programMapping.authentication?.url).success;
+    }
+    return true;
 };
 
 const hasLogins = (programMapping: Partial<IProgramMapping>) => {
-    if (programMapping.authentication.basicAuth) {
+    if (
+        ["godata", "api", "dhis2"].indexOf(programMapping.dataSource) &&
+        programMapping.authentication.basicAuth
+    ) {
         return (
             !isEmpty(programMapping.authentication.username) &&
             !isEmpty(programMapping.authentication.password)
@@ -1378,11 +1532,11 @@ export const isDisabled = (
     mySchema: z.ZodSchema,
     destinationFields: Option[]
 ) => {
-    if (step === 1) {
+    if (step === 2) {
         return !hasProgram(programMapping);
     }
 
-    if (step === 2) {
+    if (step === 3) {
         return (
             !validURL(programMapping, mySchema) || !hasLogins(programMapping)
         );
@@ -1391,17 +1545,17 @@ export const isDisabled = (
     if (
         programMapping.isSource &&
         programMapping.dataSource === "godata" &&
-        step === 3
+        step === 4
     ) {
         return !hasRemote(programMapping);
     }
 
-    if (step === 4 && ["godata", "dhis2"].indexOf(programMapping.dataSource)) {
+    if (step === 5 && ["godata", "dhis2"].indexOf(programMapping.dataSource)) {
         return !(Object.keys(organisationUnitMapping).length > 0);
     }
     if (
         programMapping.dataSource === "godata" &&
-        step === 5 &&
+        step === 6 &&
         programMapping.isSource
     ) {
         return !mandatoryAttributesMapped(
@@ -1653,7 +1807,6 @@ export const fetchTrackedEntityInstances = async (
             params.append("fields", "*");
             params.append("program", programMapping.program || "");
             params.append("ouMode", "ALL");
-
             if (api.engine) {
                 const {
                     data: { trackedEntityInstances },
@@ -1718,7 +1871,6 @@ export const fetchTrackedEntityInstances = async (
                         resource: `trackedEntityInstances.json?${params.toString()}`,
                     },
                 });
-
                 if (callback) {
                     await callback(trackedEntityInstances, [], page);
                 } else {

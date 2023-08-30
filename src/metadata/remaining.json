@@ -1,0 +1,1767 @@
+[
+    ["Address type", []],
+    ["Case classification", []],
+    [
+        "Certainty level",
+        [
+            {
+                "value": "1 - Low",
+                "label": "1 - Low",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_CERTAINTY_LEVEL_1_LOW"
+            },
+            {
+                "value": "2 - Medium",
+                "label": "2 - Medium",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_CERTAINTY_LEVEL_2_MEDIUM"
+            },
+            {
+                "value": "3 - High",
+                "label": "3 - High",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_CERTAINTY_LEVEL_3_HIGH"
+            }
+        ]
+    ],
+    [
+        "Context of transmission",
+        [
+            {
+                "value": "Workplace",
+                "label": "Workplace",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_CONTEXT_OF_TRANSMISSION_CO_WORKERS"
+            },
+            {
+                "value": "Home/household",
+                "label": "Home/household",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_CONTEXT_OF_TRANSMISSION_FAMILY"
+            },
+            {
+                "value": "Tour group",
+                "label": "Tour group",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_CONTEXT_OF_TRANSMISSION_FRIENDS"
+            },
+            {
+                "value": "Hospital/healthcare",
+                "label": "Hospital/healthcare",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_CONTEXT_OF_TRANSMISSION_NOSOCOMIAL_TRANSMISSION"
+            },
+            {
+                "value": "Other (please specify in comment field)",
+                "label": "Other (please specify in comment field)",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_CONTEXT_OF_TRANSMISSION_TRAVEL_TO_OUTBREAK_AREA"
+            },
+            {
+                "value": "Unknown",
+                "label": "Unknown",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_CONTEXT_OF_TRANSMISSION_UNKNOWN"
+            }
+        ]
+    ],
+    [
+        "Country",
+        [
+            {
+                "value": "Afghanistan",
+                "label": "Afghanistan",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_AFGHANISTAN"
+            },
+            {
+                "value": "Albania",
+                "label": "Albania",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_ALBANIA"
+            },
+            {
+                "value": "Algeria",
+                "label": "Algeria",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_ALGERIA"
+            },
+            {
+                "value": "Andorra",
+                "label": "Andorra",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_ANDORRA"
+            },
+            {
+                "value": "Angola",
+                "label": "Angola",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_ANGOLA"
+            },
+            {
+                "value": "Anguilla",
+                "label": "Anguilla",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_ANGUILLA"
+            },
+            {
+                "value": "Antigua and Barbuda",
+                "label": "Antigua and Barbuda",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_ANTIGUA_AND_BARBUDA"
+            },
+            {
+                "value": "Argentina",
+                "label": "Argentina",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_ARGENTINA"
+            },
+            {
+                "value": "Armenia",
+                "label": "Armenia",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_ARMENIA"
+            },
+            {
+                "value": "Aruba",
+                "label": "Aruba",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_ARUBA"
+            },
+            {
+                "value": "Australia",
+                "label": "Australia",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_AUSTRALIA"
+            },
+            {
+                "value": "Austria",
+                "label": "Austria",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_AUSTRIA"
+            },
+            {
+                "value": "Azerbaijan",
+                "label": "Azerbaijan",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_AZERBAIJAN"
+            },
+            {
+                "value": "Bahamas (the)",
+                "label": "Bahamas (the)",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_BAHAMAS_THE"
+            },
+            {
+                "value": "Bahrain",
+                "label": "Bahrain",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_BAHRAIN"
+            },
+            {
+                "value": "Bangladesh",
+                "label": "Bangladesh",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_BANGLADESH"
+            },
+            {
+                "value": "Barbados",
+                "label": "Barbados",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_BARBADOS"
+            },
+            {
+                "value": "Belarus",
+                "label": "Belarus",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_BELARUS"
+            },
+            {
+                "value": "Belgium",
+                "label": "Belgium",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_BELGIUM"
+            },
+            {
+                "value": "Belize",
+                "label": "Belize",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_BELIZE"
+            },
+            {
+                "value": "Benin",
+                "label": "Benin",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_BENIN"
+            },
+            {
+                "value": "Bermuda",
+                "label": "Bermuda",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_BERMUDA"
+            },
+            {
+                "value": "Bhutan",
+                "label": "Bhutan",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_BHUTAN"
+            },
+            {
+                "value": "Bolivia (Plurinational State of)",
+                "label": "Bolivia (Plurinational State of)",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_BOLIVIA_PLURINATIONAL_STATE_OF"
+            },
+            {
+                "value": "Bosnia and Herzegovina",
+                "label": "Bosnia and Herzegovina",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_BOSNIA_AND_HERZEGOVINA"
+            },
+            {
+                "value": "Botswana",
+                "label": "Botswana",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_BOTSWANA"
+            },
+            {
+                "value": "Brazil",
+                "label": "Brazil",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_BRAZIL"
+            },
+            {
+                "value": "Brunei Darussalam",
+                "label": "Brunei Darussalam",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_BRUNEI_DARUSSALAM"
+            },
+            {
+                "value": "Bulgaria",
+                "label": "Bulgaria",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_BULGARIA"
+            },
+            {
+                "value": "Burkina Faso",
+                "label": "Burkina Faso",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_BURKINA_FASO"
+            },
+            {
+                "value": "Burundi",
+                "label": "Burundi",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_BURUNDI"
+            },
+            {
+                "value": "Cabo Verde",
+                "label": "Cabo Verde",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_CABO_VERDE"
+            },
+            {
+                "value": "Cambodia",
+                "label": "Cambodia",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_CAMBODIA"
+            },
+            {
+                "value": "Cameroon",
+                "label": "Cameroon",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_CAMEROON"
+            },
+            {
+                "value": "Canada",
+                "label": "Canada",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_CANADA"
+            },
+            {
+                "value": "Central African Republic",
+                "label": "Central African Republic",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_CENTRAL_AFRICAN_REPUBLIC"
+            },
+            {
+                "value": "Chad",
+                "label": "Chad",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_CHAD"
+            },
+            {
+                "value": "Chile",
+                "label": "Chile",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_CHILE"
+            },
+            {
+                "value": "China",
+                "label": "China",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_CHINA"
+            },
+            {
+                "value": "Colombia",
+                "label": "Colombia",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_COLOMBIA"
+            },
+            {
+                "value": "Comoros (the)",
+                "label": "Comoros (the)",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_COMOROS_THE"
+            },
+            {
+                "value": "Congo",
+                "label": "Congo",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_CONGO"
+            },
+            {
+                "value": "Cook Islands",
+                "label": "Cook Islands",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_COOK_ISLANDS"
+            },
+            {
+                "value": "Costa Rica",
+                "label": "Costa Rica",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_COSTA_RICA"
+            },
+            {
+                "value": "Côte d'Ivoire",
+                "label": "Côte d'Ivoire",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_COTE_D_IVOIRE"
+            },
+            {
+                "value": "Croatia",
+                "label": "Croatia",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_CROATIA"
+            },
+            {
+                "value": "Cuba",
+                "label": "Cuba",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_CUBA"
+            },
+            {
+                "value": "Cyprus",
+                "label": "Cyprus",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_CYPRUS"
+            },
+            {
+                "value": "Czech Republic",
+                "label": "Czech Republic",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_CZECH_REPUBLIC"
+            },
+            {
+                "value": "Democratic People's Republic of Korea",
+                "label": "Democratic People's Republic of Korea",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_DEMOCRATIC_PEOPLES_REPUBLIC_OF_KOREA"
+            },
+            {
+                "value": "Democratic Republic of the Congo",
+                "label": "Democratic Republic of the Congo",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_DEMOCRATIC_REPUBLIC_OF_THE_CONGO"
+            },
+            {
+                "value": "Denmark",
+                "label": "Denmark",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_DENMARK"
+            },
+            {
+                "value": "Djibouti",
+                "label": "Djibouti",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_DJIBOUTI"
+            },
+            {
+                "value": "Dominica",
+                "label": "Dominica",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_DOMINICA"
+            },
+            {
+                "value": "Dominican Republic (the)",
+                "label": "Dominican Republic (the)",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_DOMINICAN_REPUBLIC_THE"
+            },
+            {
+                "value": "Ecuador",
+                "label": "Ecuador",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_ECUADOR"
+            },
+            {
+                "value": "Egypt",
+                "label": "Egypt",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_EGYPT"
+            },
+            {
+                "value": "El Salvador",
+                "label": "El Salvador",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_EL_SALVADOR"
+            },
+            {
+                "value": "Equatorial Guinea",
+                "label": "Equatorial Guinea",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_EQUATORIAL_GUINEA"
+            },
+            {
+                "value": "Eritrea",
+                "label": "Eritrea",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_ERITREA"
+            },
+            {
+                "value": "Estonia",
+                "label": "Estonia",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_ESTONIA"
+            },
+            {
+                "value": "Eswatini",
+                "label": "Eswatini",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_ESWATINI"
+            },
+            {
+                "value": "Ethiopia",
+                "label": "Ethiopia",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_ETHIOPIA"
+            },
+            {
+                "value": "Fiji",
+                "label": "Fiji",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_FIJI"
+            },
+            {
+                "value": "Finland",
+                "label": "Finland",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_FINLAND"
+            },
+            {
+                "value": "France",
+                "label": "France",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_FRANCE"
+            },
+            {
+                "value": "Gabon",
+                "label": "Gabon",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_GABON"
+            },
+            {
+                "value": "Georgia",
+                "label": "Georgia",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_GEORGIA"
+            },
+            {
+                "value": "Germany",
+                "label": "Germany",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_GERMANY"
+            },
+            {
+                "value": "Ghana",
+                "label": "Ghana",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_GHANA"
+            },
+            {
+                "value": "Greece",
+                "label": "Greece",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_GREECE"
+            },
+            {
+                "value": "Grenada",
+                "label": "Grenada",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_GRENADA"
+            },
+            {
+                "value": "Guatemala",
+                "label": "Guatemala",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_GUATEMALA"
+            },
+            {
+                "value": "Guinea",
+                "label": "Guinea",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_GUINEA"
+            },
+            {
+                "value": "Guinea-Bissau",
+                "label": "Guinea-Bissau",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_GUINEA_BISSAU"
+            },
+            {
+                "value": "Guyana",
+                "label": "Guyana",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_GUYANA"
+            },
+            {
+                "value": "Haiti",
+                "label": "Haiti",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_HAITI"
+            },
+            {
+                "value": "Honduras",
+                "label": "Honduras",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_HONDURAS"
+            },
+            {
+                "value": "Hungary",
+                "label": "Hungary",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_HUNGARY"
+            },
+            {
+                "value": "Iceland",
+                "label": "Iceland",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_ICELAND"
+            },
+            {
+                "value": "India",
+                "label": "India",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_INDIA"
+            },
+            {
+                "value": "Indonesia",
+                "label": "Indonesia",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_INDONESIA"
+            },
+            {
+                "value": "Iran (Islamic Republic of)",
+                "label": "Iran (Islamic Republic of)",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_IRAN_ISLAMIC_REPUBLIC_OF"
+            },
+            {
+                "value": "Iraq",
+                "label": "Iraq",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_IRAQ"
+            },
+            {
+                "value": "Ireland",
+                "label": "Ireland",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_IRELAND"
+            },
+            {
+                "value": "Israel",
+                "label": "Israel",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_ISRAEL"
+            },
+            {
+                "value": "Italy",
+                "label": "Italy",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_ITALY"
+            },
+            {
+                "value": "Jamaica",
+                "label": "Jamaica",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_JAMAICA"
+            },
+            {
+                "value": "Japan",
+                "label": "Japan",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_JAPAN"
+            },
+            {
+                "value": "Jordan",
+                "label": "Jordan",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_JORDAN"
+            },
+            {
+                "value": "Kazakhstan",
+                "label": "Kazakhstan",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_KAZAKHSTAN"
+            },
+            {
+                "value": "Kenya",
+                "label": "Kenya",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_KENYA"
+            },
+            {
+                "value": "Kiribati",
+                "label": "Kiribati",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_KIRIBATI"
+            },
+            {
+                "value": "Kuwait",
+                "label": "Kuwait",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_KUWAIT"
+            },
+            {
+                "value": "Kyrgyzstan",
+                "label": "Kyrgyzstan",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_KYRGYZSTAN"
+            },
+            {
+                "value": "Lao People's Democratic Republic",
+                "label": "Lao People's Democratic Republic",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_LAO_PEOPLES_DEMOCRATIC_REPUBLIC"
+            },
+            {
+                "value": "Latvia",
+                "label": "Latvia",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_LATVIA"
+            },
+            {
+                "value": "Lebanon",
+                "label": "Lebanon",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_LEBANON"
+            },
+            {
+                "value": "Lesotho",
+                "label": "Lesotho",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_LESOTHO"
+            },
+            {
+                "value": "Liberia",
+                "label": "Liberia",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_LIBERIA"
+            },
+            {
+                "value": "Libya",
+                "label": "Libya",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_LIBYA"
+            },
+            {
+                "value": "Liechtenstein",
+                "label": "Liechtenstein",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_LIECHTENSTEIN"
+            },
+            {
+                "value": "Lithuania",
+                "label": "Lithuania",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_LITHUANIA"
+            },
+            {
+                "value": "Luxembourg",
+                "label": "Luxembourg",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_LUXEMBOURG"
+            },
+            {
+                "value": "Madagascar",
+                "label": "Madagascar",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_MADAGASCAR"
+            },
+            {
+                "value": "Malawi",
+                "label": "Malawi",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_MALAWI"
+            },
+            {
+                "value": "Malaysia",
+                "label": "Malaysia",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_MALAYSIA"
+            },
+            {
+                "value": "Maldives",
+                "label": "Maldives",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_MALDIVES"
+            },
+            {
+                "value": "Mali",
+                "label": "Mali",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_MALI"
+            },
+            {
+                "value": "Malta",
+                "label": "Malta",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_MALTA"
+            },
+            {
+                "value": "Marshall Islands",
+                "label": "Marshall Islands",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_MARSHALL_ISLANDS"
+            },
+            {
+                "value": "Mauritania",
+                "label": "Mauritania",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_MAURITANIA"
+            },
+            {
+                "value": "Mauritius",
+                "label": "Mauritius",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_MAURITIUS"
+            },
+            {
+                "value": "Mexico",
+                "label": "Mexico",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_MEXICO"
+            },
+            {
+                "value": "Micronesia (Federated States of)",
+                "label": "Micronesia (Federated States of)",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_MICRONESIA_FEDERATED_STATES_OF"
+            },
+            {
+                "value": "Monaco",
+                "label": "Monaco",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_MONACO"
+            },
+            {
+                "value": "Mongolia",
+                "label": "Mongolia",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_MONGOLIA"
+            },
+            {
+                "value": "Montenegro",
+                "label": "Montenegro",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_MONTENEGRO"
+            },
+            {
+                "value": "Morocco",
+                "label": "Morocco",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_MOROCCO"
+            },
+            {
+                "value": "Mozambique",
+                "label": "Mozambique",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_MOZAMBIQUE"
+            },
+            {
+                "value": "Myanmar",
+                "label": "Myanmar",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_MYANMAR"
+            },
+            {
+                "value": "Namibia",
+                "label": "Namibia",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_NAMIBIA"
+            },
+            {
+                "value": "Nauru",
+                "label": "Nauru",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_NAURU"
+            },
+            {
+                "value": "Nepal",
+                "label": "Nepal",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_NEPAL"
+            },
+            {
+                "value": "Netherlands",
+                "label": "Netherlands",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_NETHERLANDS"
+            },
+            {
+                "value": "New Zealand",
+                "label": "New Zealand",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_NEW_ZEALAND"
+            },
+            {
+                "value": "Nicaragua",
+                "label": "Nicaragua",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_NICARAGUA"
+            },
+            {
+                "value": "Niger",
+                "label": "Niger",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_NIGER"
+            },
+            {
+                "value": "Nigeria",
+                "label": "Nigeria",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_NIGERIA"
+            },
+            {
+                "value": "Niue",
+                "label": "Niue",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_NIUE"
+            },
+            {
+                "value": "Norway",
+                "label": "Norway",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_NORWAY"
+            },
+            {
+                "value": "Oman",
+                "label": "Oman",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_OMAN"
+            },
+            {
+                "value": "Pakistan",
+                "label": "Pakistan",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_PAKISTAN"
+            },
+            {
+                "value": "Palau",
+                "label": "Palau",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_PALAU"
+            },
+            {
+                "value": "Panama",
+                "label": "Panama",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_PANAMA"
+            },
+            {
+                "value": "Papua New Guinea",
+                "label": "Papua New Guinea",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_PAPUA_NEW_GUINEA"
+            },
+            {
+                "value": "Paraguay",
+                "label": "Paraguay",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_PARAGUAY"
+            },
+            {
+                "value": "Peru",
+                "label": "Peru",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_PERU"
+            },
+            {
+                "value": "Philippines",
+                "label": "Philippines",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_PHILIPPINES"
+            },
+            {
+                "value": "Poland",
+                "label": "Poland",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_POLAND"
+            },
+            {
+                "value": "Portugal",
+                "label": "Portugal",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_PORTUGAL"
+            },
+            {
+                "value": "Qatar",
+                "label": "Qatar",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_QATAR"
+            },
+            {
+                "value": "Republic of Korea",
+                "label": "Republic of Korea",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_REPUBLIC_OF_KOREA"
+            },
+            {
+                "value": "Republic of Moldova",
+                "label": "Republic of Moldova",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_REPUBLIC_OF_MOLDOVA"
+            },
+            {
+                "value": "Romania",
+                "label": "Romania",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_ROMANIA"
+            },
+            {
+                "value": "Russian Federation",
+                "label": "Russian Federation",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_RUSSIAN_FEDERATION"
+            },
+            {
+                "value": "Rwanda",
+                "label": "Rwanda",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_RWANDA"
+            },
+            {
+                "value": "Saint Kitts and Nevis",
+                "label": "Saint Kitts and Nevis",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_SAINT_KITTS_AND_NEVIS"
+            },
+            {
+                "value": "Saint Lucia",
+                "label": "Saint Lucia",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_SAINT_LUCIA"
+            },
+            {
+                "value": "Saint Vincent and the Grenadines",
+                "label": "Saint Vincent and the Grenadines",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_SAINT_VINCENT_AND_THE_GRENADINES"
+            },
+            {
+                "value": "Samoa",
+                "label": "Samoa",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_SAMOA"
+            },
+            {
+                "value": "San Marino",
+                "label": "San Marino",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_SAN_MARINO"
+            },
+            {
+                "value": "Sao Tome and Principe",
+                "label": "Sao Tome and Principe",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_SAO_TOME_AND_PRINCIPE"
+            },
+            {
+                "value": "Saudi Arabia",
+                "label": "Saudi Arabia",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_SAUDI_ARABIA"
+            },
+            {
+                "value": "Senegal",
+                "label": "Senegal",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_SENEGAL"
+            },
+            {
+                "value": "Serbia",
+                "label": "Serbia",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_SERBIA"
+            },
+            {
+                "value": "Seychelles",
+                "label": "Seychelles",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_SEYCHELLES"
+            },
+            {
+                "value": "Sierra Leone",
+                "label": "Sierra Leone",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_SIERRA_LEONE"
+            },
+            {
+                "value": "Singapore",
+                "label": "Singapore",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_SINGAPORE"
+            },
+            {
+                "value": "Slovakia",
+                "label": "Slovakia",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_SLOVAKIA"
+            },
+            {
+                "value": "Slovenia",
+                "label": "Slovenia",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_SLOVENIA"
+            },
+            {
+                "value": "Solomon Islands",
+                "label": "Solomon Islands",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_SOLOMON_ISLANDS"
+            },
+            {
+                "value": "Somalia",
+                "label": "Somalia",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_SOMALIA"
+            },
+            {
+                "value": "South Africa",
+                "label": "South Africa",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_SOUTH_AFRICA"
+            },
+            {
+                "value": "South Sudan",
+                "label": "South Sudan",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_SOUTH_SUDAN"
+            },
+            {
+                "value": "Spain",
+                "label": "Spain",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_SPAIN"
+            },
+            {
+                "value": "Sri Lanka",
+                "label": "Sri Lanka",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_SRI_LANKA"
+            },
+            {
+                "value": "Sudan",
+                "label": "Sudan",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_SUDAN"
+            },
+            {
+                "value": "Suriname",
+                "label": "Suriname",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_SURINAME"
+            },
+            {
+                "value": "Sweden",
+                "label": "Sweden",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_SWEDEN"
+            },
+            {
+                "value": "Switzerland",
+                "label": "Switzerland",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_SWITZERLAND"
+            },
+            {
+                "value": "Syrian Arab Republic",
+                "label": "Syrian Arab Republic",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_SYRIAN_ARAB_REPUBLIC"
+            },
+            {
+                "value": "Tajikistan",
+                "label": "Tajikistan",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_TAJIKISTAN"
+            },
+            {
+                "value": "Thailand",
+                "label": "Thailand",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_THAILAND"
+            },
+            {
+                "value": "The former Yugoslav Republic of Macedonia",
+                "label": "The former Yugoslav Republic of Macedonia",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_THE_FORMER_YUGOSLAV_REPUBLIC_OF_MACEDONIA"
+            },
+            {
+                "value": "The Islamic Republic of the Gambia",
+                "label": "The Islamic Republic of the Gambia",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_THE_ISLAMIC_REPUBLIC_OF_THE_GAMBIA"
+            },
+            {
+                "value": "Timor-Leste",
+                "label": "Timor-Leste",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_TIMOR_LESTE"
+            },
+            {
+                "value": "Togo",
+                "label": "Togo",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_TOGO"
+            },
+            {
+                "value": "Tonga",
+                "label": "Tonga",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_TONGA"
+            },
+            {
+                "value": "Trinidad and Tobago",
+                "label": "Trinidad and Tobago",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_TRINIDAD_AND_TOBAGO"
+            },
+            {
+                "value": "Tunisia",
+                "label": "Tunisia",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_TUNISIA"
+            },
+            {
+                "value": "Turkey",
+                "label": "Turkey",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_TURKEY"
+            },
+            {
+                "value": "Turkmenistan",
+                "label": "Turkmenistan",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_TURKMENISTAN"
+            },
+            {
+                "value": "Tuvalu",
+                "label": "Tuvalu",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_TUVALU"
+            },
+            {
+                "value": "Uganda",
+                "label": "Uganda",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_UGANDA"
+            },
+            {
+                "value": "Ukraine",
+                "label": "Ukraine",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_UKRAINE"
+            },
+            {
+                "value": "United Arab Emirates",
+                "label": "United Arab Emirates",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_UNITED_ARAB_EMIRATES"
+            },
+            {
+                "value": "United Kingdom of Great Britain and Northern Ireland (the)",
+                "label": "United Kingdom of Great Britain and Northern Ireland (the)",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_UNITED_KINGDOM_OF_GREAT_BRITAIN_AND_NORTHERN_IRELAND_THE"
+            },
+            {
+                "value": "United Republic of Tanzania",
+                "label": "United Republic of Tanzania",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_UNITED_REPUBLIC_OF_TANZANIA"
+            },
+            {
+                "value": "United States of America",
+                "label": "United States of America",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_UNITED_STATES_OF_AMERICA"
+            },
+            {
+                "value": "Uruguay",
+                "label": "Uruguay",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_URUGUAY"
+            },
+            {
+                "value": "Uzbekistan",
+                "label": "Uzbekistan",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_UZBEKISTAN"
+            },
+            {
+                "value": "Vanuatu",
+                "label": "Vanuatu",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_VANUATU"
+            },
+            {
+                "value": "Venezuela (Bolivarian Republic of)",
+                "label": "Venezuela (Bolivarian Republic of)",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_VENEZUELA_BOLIVARIAN_REPUBLIC_OF"
+            },
+            {
+                "value": "Viet Nam",
+                "label": "Viet Nam",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_VIET_NAM"
+            },
+            {
+                "value": "Yemen",
+                "label": "Yemen",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_YEMEN"
+            },
+            {
+                "value": "Zambia",
+                "label": "Zambia",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_ZAMBIA"
+            },
+            {
+                "value": "Zimbabwe",
+                "label": "Zimbabwe",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_COUNTRY_ZIMBABWE"
+            }
+        ]
+    ],
+    [
+        "Disease",
+        [
+            {
+                "value": "COVID-19",
+                "label": "COVID-19",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_DISEASE_2019_N_CO_V"
+            },
+            {
+                "value": "Acute respiratory disease",
+                "label": "Acute respiratory disease",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_DISEASE_ACUTE_RESPIRATORY_DISEASE"
+            },
+            {
+                "value": "Cholera",
+                "label": "Cholera",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_DISEASE_CHOLERA"
+            },
+            {
+                "value": "Ebola virus disease",
+                "label": "Ebola virus disease",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_DISEASE_EBOLA_VIRUS_DISEASE"
+            },
+            {
+                "value": "Leptospirosis",
+                "label": "Leptospirosis",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_DISEASE_LEPTOSPIROSIS"
+            },
+            {
+                "value": "Marburg virus disease",
+                "label": "Marburg virus disease",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_DISEASE_MARBURG_VIRUS_DISEASE"
+            },
+            {
+                "value": "Measles",
+                "label": "Measles",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_DISEASE_MEASLES"
+            },
+            {
+                "value": "Middle East respiratory syndrome coronavirus (MERS-CoV)",
+                "label": "Middle East respiratory syndrome coronavirus (MERS-CoV)",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_DISEASE_MIDDLE_EASI_RESPIRATORY_SYNDROME_CORONAVIRUS_MERS_CO_V"
+            },
+            {
+                "value": "Monkeypox",
+                "label": "Monkeypox",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_DISEASE_MONKEYPOX"
+            },
+            {
+                "value": "Plague, pneumonic",
+                "label": "Plague, pneumonic",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_DISEASE_PLAGUE_PNEUMONIC"
+            },
+            {
+                "value": "Yellow Fever",
+                "label": "Yellow Fever",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_DISEASE_YELLOW_FEVER"
+            }
+        ]
+    ],
+    ["Document type", []],
+    [
+        "Exposure duration",
+        [
+            {
+                "value": "Long (days)",
+                "label": "Long (days)",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_EXPOSURE_DURATION_LONG_DAYS"
+            },
+            {
+                "value": "Medium (hours)",
+                "label": "Medium (hours)",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_EXPOSURE_DURATION_MEDIUM_HOURS"
+            },
+            {
+                "value": "Short (minutes)",
+                "label": "Short (minutes)",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_EXPOSURE_DURATION_SHORT_MINUTES"
+            },
+            {
+                "value": "Very short (seconds)",
+                "label": "Very short (seconds)",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_EXPOSURE_DURATION_VERY_SHORT_SECONDS"
+            }
+        ]
+    ],
+    [
+        "Exposure frequency",
+        [
+            {
+                "value": "11-20 Times",
+                "label": "11-20 Times",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_EXPOSURE_FREQUENCY_11_20_TIMES"
+            },
+            {
+                "value": "1-5 Times",
+                "label": "1-5 Times",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_EXPOSURE_FREQUENCY_1_5_TIMES"
+            },
+            {
+                "value": "6-10 Times",
+                "label": "6-10 Times",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_EXPOSURE_FREQUENCY_6_10_TIMES"
+            },
+            {
+                "value": "Over 21 times",
+                "label": "Over 21 times",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_EXPOSURE_FREQUENCY_OVER_21_TIMES"
+            },
+            {
+                "value": "Unknown",
+                "label": "Unknown",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_EXPOSURE_FREQUENCY_UNKNOWN"
+            }
+        ]
+    ],
+    [
+        "Exposure intensity",
+        [
+            {
+                "value": "1 - Low",
+                "label": "1 - Low",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_EXPOSURE_INTENSITY_1_LOW"
+            },
+            {
+                "value": "2 - Medium",
+                "label": "2 - Medium",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_EXPOSURE_INTENSITY_2_MEDIUM"
+            },
+            {
+                "value": "3 - High",
+                "label": "3 - High",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_EXPOSURE_INTENSITY_3_HIGH"
+            }
+        ]
+    ],
+    [
+        "Exposure type",
+        [
+            {
+                "value": "Ate/drank contaminated material ",
+                "label": "Ate/drank contaminated material ",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_EXPOSURE_TYPE_ATE_DRANK_CONTAMINATED_MATERIAL"
+            },
+            {
+                "value": "Direct non-physical contact (within 1 meter) ",
+                "label": "Direct non-physical contact (within 1 meter) ",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_EXPOSURE_TYPE_DIRECT_PHYSICAL_CONTACT"
+            },
+            {
+                "value": "Intravenous exposure ",
+                "label": "Intravenous exposure ",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_EXPOSURE_TYPE_INTRAVENOUS_EXPOSURE"
+            },
+            {
+                "value": "Other (please specify in comment field) ",
+                "label": "Other (please specify in comment field) ",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_EXPOSURE_TYPE_OTHER_PLEASE_SPECIFY_IN_COMMENT_FIELD"
+            },
+            {
+                "value": "Sexual exposure",
+                "label": "Sexual exposure",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_EXPOSURE_TYPE_SEXUAL_EXPOSURE"
+            },
+            {
+                "value": "Direct physical contact ",
+                "label": "Direct physical contact ",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_EXPOSURE_TYPE_SLEPT_ATE_OR_SPEND_TIME_IN_SAME_HOUSEHOLD"
+            },
+            {
+                "value": "Indirect contact (touched contaminated surface/materials/fomites etc.)",
+                "label": "Indirect contact (touched contaminated surface/materials/fomites etc.)",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_EXPOSURE_TYPE_TOUCHED_BODY_FLUIDS"
+            }
+        ]
+    ],
+    [
+        "Team assignment algorithm",
+        [
+            {
+                "value": "Option 2 - Assign team responsible for the location where contact resides",
+                "label": "Option 2 - Assign team responsible for the location where contact resides",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_FOLLOWUP_GENERATION_TEAM_ASSIGNMENT_ALGORITHM_ROUND_ROBIN_ALL_TEAMS"
+            },
+            {
+                "value": "Option 1 - Assign team at the higher admin level",
+                "label": "Option 1 - Assign team at the higher admin level",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_FOLLOWUP_GENERATION_TEAM_ASSIGNMENT_ALGORITHM_ROUND_ROBIN_NEAREST_FIT"
+            }
+        ]
+    ],
+    [
+        "Institution name",
+        [
+            {
+                "value": "Generic",
+                "label": "Generic",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_INSTITUTION_NAME_GENERIC"
+            }
+        ]
+    ],
+    [
+        "Investigation status",
+        [
+            {
+                "value": "Case investigation complete",
+                "label": "Case investigation complete",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_INVESTIGATION_STATUS_COMPLETE"
+            },
+            {
+                "value": "In progress",
+                "label": "In progress",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_INVESTIGATION_STATUS_IN_PROGRESS"
+            },
+            {
+                "value": "Couldn't reach case",
+                "label": "Couldn't reach case",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_INVESTIGATION_STATUS_NOT_REACHED"
+            },
+            {
+                "value": "Reached but not complying",
+                "label": "Reached but not complying",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_INVESTIGATION_STATUS_REACHED"
+            }
+        ]
+    ],
+    [
+        "Lab test result",
+        [
+            {
+                "value": "Inconclusive for targeted pathogen",
+                "label": "Inconclusive for targeted pathogen",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_LAB_TEST_RESULT_INCONCLUSIVE"
+            },
+            {
+                "value": "Negative for targeted pathogen",
+                "label": "Negative for targeted pathogen",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_LAB_TEST_RESULT_NEGATIVE"
+            },
+            {
+                "value": "Positive for targeted pathogen (if serology, enter titre in Quantitative result)",
+                "label": "Positive for targeted pathogen (if serology, enter titre in Quantitative result)",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_LAB_TEST_RESULT_POSITIVE"
+            },
+            {
+                "value": "Positive for other pathogens (specify in Notes field)",
+                "label": "Positive for other pathogens (specify in Notes field)",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_LAB_TEST_RESULT_POSITIVE_FOR_OTHER_PATHOGENS_SPECIFY_IN_NOTES_FIELD"
+            }
+        ]
+    ],
+    [
+        "Lab test result status",
+        [
+            {
+                "value": "Completed",
+                "label": "Completed",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_LAB_TEST_RESULT_STATUS_COMPLETED"
+            },
+            {
+                "value": "In progress",
+                "label": "In progress",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_LAB_TEST_RESULT_STATUS_IN_PROGRESS"
+            }
+        ]
+    ],
+    [
+        "Location geographical level",
+        [
+            {
+                "value": "Admin level 0",
+                "label": "Admin level 0",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_LOCATION_GEOGRAPHICAL_LEVEL_ADMIN_LEVEL_0"
+            },
+            {
+                "value": "Admin level 1",
+                "label": "Admin level 1",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_LOCATION_GEOGRAPHICAL_LEVEL_ADMIN_LEVEL_1"
+            },
+            {
+                "value": "Admin level 2",
+                "label": "Admin level 2",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_LOCATION_GEOGRAPHICAL_LEVEL_ADMIN_LEVEL_2"
+            },
+            {
+                "value": "Admin level 3",
+                "label": "Admin level 3",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_LOCATION_GEOGRAPHICAL_LEVEL_ADMIN_LEVEL_3"
+            },
+            {
+                "value": "Admin level 4",
+                "label": "Admin level 4",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_LOCATION_GEOGRAPHICAL_LEVEL_ADMIN_LEVEL_4"
+            },
+            {
+                "value": "Admin level 5",
+                "label": "Admin level 5",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_LOCATION_GEOGRAPHICAL_LEVEL_ADMIN_LEVEL_5"
+            },
+            {
+                "value": "Admin level 6",
+                "label": "Admin level 6",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_LOCATION_GEOGRAPHICAL_LEVEL_ADMIN_LEVEL_6"
+            },
+            {
+                "value": "Admin Level 7",
+                "label": "Admin Level 7",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_LOCATION_GEOGRAPHICAL_LEVEL_ADMIN_LEVEL_7"
+            },
+            {
+                "value": "Admin level 8",
+                "label": "Admin level 8",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_LOCATION_GEOGRAPHICAL_LEVEL_ADMIN_LEVEL_8"
+            },
+            {
+                "value": "Admin level 9",
+                "label": "Admin level 9",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_LOCATION_GEOGRAPHICAL_LEVEL_ADMIN_LEVEL_9"
+            }
+        ]
+    ],
+    ["Occupation", []],
+    ["Outcome", []],
+    ["Hospitalization / Isolation types", []],
+    [
+        "Person type",
+        [
+            {
+                "value": "Case",
+                "label": "Case",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_PERSON_TYPE_CASE"
+            },
+            {
+                "value": "Contact",
+                "label": "Contact",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_PERSON_TYPE_CONTACT"
+            },
+            {
+                "value": "Contact of contact",
+                "label": "Contact of contact",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_PERSON_TYPE_CONTACT_OF_CONTACT"
+            },
+            {
+                "value": "Event",
+                "label": "Event",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_PERSON_TYPE_EVENT"
+            }
+        ]
+    ],
+    ["Pregnancy status", []],
+    [
+        "Question answer type",
+        [
+            {
+                "value": "Date/Time",
+                "label": "Date/Time",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_QUESTION_ANSWER_TYPE_DATE_TIME"
+            },
+            {
+                "value": "File upload",
+                "label": "File upload",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_QUESTION_ANSWER_TYPE_FILE_UPLOAD"
+            },
+            {
+                "value": "Freetext",
+                "label": "Freetext",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_QUESTION_ANSWER_TYPE_FREE_TEXT"
+            },
+            {
+                "value": "Markup",
+                "label": "Markup",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_QUESTION_ANSWER_TYPE_MARKUP"
+            },
+            {
+                "value": "Multiple answers",
+                "label": "Multiple answers",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_QUESTION_ANSWER_TYPE_MULTIPLE_ANSWERS"
+            },
+            {
+                "value": "Numeric",
+                "label": "Numeric",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_QUESTION_ANSWER_TYPE_NUMERIC"
+            },
+            {
+                "value": "Single answer",
+                "label": "Single answer",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_QUESTION_ANSWER_TYPE_SINGLE_ANSWER"
+            }
+        ]
+    ],
+    [
+        "Question category",
+        [
+            {
+                "value": "Current Status",
+                "label": "Current Status",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_QUESTION_CATEGORY_A_0_DATA_COLLECTOR_INFORMATION"
+            },
+            {
+                "value": "Data Collector Information",
+                "label": "Data Collector Information",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_QUESTION_CATEGORY_A_0_INTERVIEW_RESPONDENT_INFORAMATION"
+            },
+            {
+                "value": "Interview Respondent Information",
+                "label": "Interview Respondent Information",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_QUESTION_CATEGORY_A_0_INTERVIEW_RESPONDENT_INFORMATION"
+            },
+            {
+                "value": "Case Identifier Information",
+                "label": "Case Identifier Information",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_QUESTION_CATEGORY_A_0_OUCOME_S_TATUS"
+            },
+            {
+                "value": "Patient Symptoms",
+                "label": "Patient Symptoms",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_QUESTION_CATEGORY_A_0_PATIENT_SYMPTOMS"
+            },
+            {
+                "value": "Clinical",
+                "label": "Clinical",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_QUESTION_CATEGORY_CLINICAL"
+            },
+            {
+                "value": "Clinical Course Complications",
+                "label": "Clinical Course Complications",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_QUESTION_CATEGORY_CLINICAL_COURSE_COMPLICATIONS"
+            },
+            {
+                "value": "Contact Details",
+                "label": "Contact Details",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_QUESTION_CATEGORY_CONTACT_DETAILS"
+            },
+            {
+                "value": "Contact with confirmed patient",
+                "label": "Contact with confirmed patient",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_QUESTION_CATEGORY_CONTACT_WITH_CONFIRMED_PATIENT"
+            },
+            {
+                "value": "Dromedary camel contact",
+                "label": "Dromedary camel contact",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_QUESTION_CATEGORY_DROMEDARY_CAMEL_CONTACT"
+            },
+            {
+                "value": "Epidemiology and exposure",
+                "label": "Epidemiology and exposure",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_QUESTION_CATEGORY_EPIDEMIOLOGY_AND_EXPOSURE"
+            },
+            {
+                "value": "Exposure risk",
+                "label": "Exposure risk",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_QUESTION_CATEGORY_EXPOSURE_RISK"
+            },
+            {
+                "value": "Form Completion",
+                "label": "Form Completion",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_QUESTION_CATEGORY_FORM_COMPLETION"
+            },
+            {
+                "value": "Form completion information",
+                "label": "Form completion information",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_QUESTION_CATEGORY_FORM_COMPLETION_INFORMATION"
+            },
+            {
+                "value": "Health Care Center/Treating Physicians Details",
+                "label": "Health Care Center/Treating Physicians Details",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_QUESTION_CATEGORY_HEALTH_CARE_CENTER_TREATING_PHYSICIANS_DETAILS"
+            },
+            {
+                "value": "Health Care Interactions",
+                "label": "Health Care Interactions",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_QUESTION_CATEGORY_HEALTH_CARE_INTERACTIONS"
+            },
+            {
+                "value": "Health care visits",
+                "label": "Health care visits",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_QUESTION_CATEGORY_HEALTH_CARE_VISITS"
+            },
+            {
+                "value": "History of present ilness",
+                "label": "History of present ilness",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_QUESTION_CATEGORY_HISTORY_OF_PRESENT_ILNESS"
+            },
+            {
+                "value": "Household Information",
+                "label": "Household Information",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_QUESTION_CATEGORY_HOUSEHOLD_INFORMATION"
+            },
+            {
+                "value": "Human Exposures in the X Days before Symptom Onset",
+                "label": "Human Exposures in the X Days before Symptom Onset",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_QUESTION_CATEGORY_HUMAN_EXPOSURES_IN_THE_14_DAYS_BEFORE_ILLNESS_ONSET"
+            },
+            {
+                "value": "Initial Sample Collection ",
+                "label": "Initial Sample Collection ",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_QUESTION_CATEGORY_INITIAL_RESPIRATORY_SAMPLE_COLLECTION"
+            },
+            {
+                "value": "Other animal contact",
+                "label": "Other animal contact",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_QUESTION_CATEGORY_OTHER_ANIMAL_CONTACT"
+            },
+            {
+                "value": "Outcome/Status",
+                "label": "Outcome/Status",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_QUESTION_CATEGORY_OUTCOME_STATUS"
+            },
+            {
+                "value": "Patients condition",
+                "label": "Patients condition",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_QUESTION_CATEGORY_PATIENTS_CONDITION"
+            },
+            {
+                "value": "Patient Information",
+                "label": "Patient Information",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_QUESTION_CATEGORY_PATIENT_INFORMATION"
+            },
+            {
+                "value": "Patient Pre-Existing Condition(s)",
+                "label": "Patient Pre-Existing Condition(s)",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_QUESTION_CATEGORY_PATIENT_PRE_EXISTING_CONDITION_S"
+            },
+            {
+                "value": "Recent travel",
+                "label": "Recent travel",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_QUESTION_CATEGORY_RECENT_TRAVEL"
+            },
+            {
+                "value": "Reporting",
+                "label": "Reporting",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_QUESTION_CATEGORY_REPORTING"
+            },
+            {
+                "value": "Underlying medical conditions",
+                "label": "Underlying medical conditions",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_QUESTION_CATEGORY_UNDERLYING_MEDICAL_CONDITIONS"
+            }
+        ]
+    ],
+    ["Risk level", []],
+    [
+        "Type of lab result",
+        [
+            {
+                "value": "Antigen detected (RDT)",
+                "label": "Antigen detected (RDT)",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_TYPE_OF_LAB_TEST_ANTIGEN_DETECTED"
+            },
+            {
+                "value": "Histopathology",
+                "label": "Histopathology",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_TYPE_OF_LAB_TEST_HISTOPATHOLOGY"
+            },
+            {
+                "value": "Serology (IgG, IgM, etc.)",
+                "label": "Serology (IgG, IgM, etc.)",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_TYPE_OF_LAB_TEST_IG_C_OR_IG_M"
+            },
+            {
+                "value": "Other (specify in Notes field)",
+                "label": "Other (specify in Notes field)",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_TYPE_OF_LAB_TEST_OTHER_SPECIFY_IN_NOTES_FIELD"
+            },
+            {
+                "value": "Partial genome sequencing",
+                "label": "Partial genome sequencing",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_TYPE_OF_LAB_TEST_PARTIAL_GENOME_SEQUENCING"
+            },
+            {
+                "value": "PCR",
+                "label": "PCR",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_TYPE_OF_LAB_TEST_PCR"
+            },
+            {
+                "value": "RT-PCR",
+                "label": "RT-PCR",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_TYPE_OF_LAB_TEST_RT_PCR"
+            },
+            {
+                "value": "Virus culture",
+                "label": "Virus culture",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_TYPE_OF_LAB_TEST_VIRUS_CULTURE"
+            },
+            {
+                "value": "Whole genome sequencing",
+                "label": "Whole genome sequencing",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_TYPE_OF_LAB_TEST_WHOLE_GENOME_SEQUENCING"
+            }
+        ]
+    ],
+    [
+        "Type of sample",
+        [
+            {
+                "value": "Blood",
+                "label": "Blood",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_TYPE_OF_SAMPLE_BLOOD"
+            },
+            {
+                "value": "CSF",
+                "label": "CSF",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_TYPE_OF_SAMPLE_CSF"
+            },
+            {
+                "value": "Endotracheal aspirate",
+                "label": "Endotracheal aspirate",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_TYPE_OF_SAMPLE_ENDOTRACHEAL_ASPIRATE"
+            },
+            {
+                "value": "Faeces",
+                "label": "Faeces",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_TYPE_OF_SAMPLE_FAECES"
+            },
+            {
+                "value": "Nasal swab",
+                "label": "Nasal swab",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_TYPE_OF_SAMPLE_NASAL_SWAB"
+            },
+            {
+                "value": "Nasopharyngeal swab",
+                "label": "Nasopharyngeal swab",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_TYPE_OF_SAMPLE_NASOPHARYNGEAL_SWAB"
+            },
+            {
+                "value": "Other (specify in Notes field)",
+                "label": "Other (specify in Notes field)",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_TYPE_OF_SAMPLE_OTHER_SPECIFY_IN_NOTES_FIELD"
+            },
+            {
+                "value": "Pleural fluid",
+                "label": "Pleural fluid",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_TYPE_OF_SAMPLE_PLEURAL_FLUID"
+            },
+            {
+                "value": "Serum",
+                "label": "Serum",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_TYPE_OF_SAMPLE_SERUM"
+            },
+            {
+                "value": "Skin biopsy",
+                "label": "Skin biopsy",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_TYPE_OF_SAMPLE_SKIN_BIOPSY"
+            },
+            {
+                "value": "Sputum",
+                "label": "Sputum",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_TYPE_OF_SAMPLE_SPUTUM"
+            },
+            {
+                "value": "Throat swab",
+                "label": "Throat swab",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_TYPE_OF_SAMPLE_THROAT_SWAB"
+            },
+            {
+                "value": "Urine",
+                "label": "Urine",
+                "id": "LNG_REFERENCE_DATA_CATEGORY_TYPE_OF_SAMPLE_URINE"
+            }
+        ]
+    ],
+    ["Vaccine status", []],
+    [
+        "Contact daily follow-up status",
+        [
+            {
+                "value": "Missed",
+                "label": "Missed",
+                "id": "LNG_REFERENCE_DATA_CONTACT_DAILY_FOLLOW_UP_STATUS_TYPE_MISSED"
+            },
+            {
+                "value": "Not attempted",
+                "label": "Not attempted",
+                "id": "LNG_REFERENCE_DATA_CONTACT_DAILY_FOLLOW_UP_STATUS_TYPE_NOT_ATTEMPTED"
+            },
+            {
+                "value": "Not performed",
+                "label": "Not performed",
+                "id": "LNG_REFERENCE_DATA_CONTACT_DAILY_FOLLOW_UP_STATUS_TYPE_NOT_PERFORMED"
+            },
+            {
+                "value": "Seen not ok",
+                "label": "Seen not ok",
+                "id": "LNG_REFERENCE_DATA_CONTACT_DAILY_FOLLOW_UP_STATUS_TYPE_SEEN_NOT_OK"
+            },
+            {
+                "value": "Seen ok",
+                "label": "Seen ok",
+                "id": "LNG_REFERENCE_DATA_CONTACT_DAILY_FOLLOW_UP_STATUS_TYPE_SEEN_OK"
+            }
+        ]
+    ],
+    ["Contact final follow-up status", []],
+    [
+        "Map Type",
+        [
+            {
+                "value": "Tile - ArcGIS REST",
+                "label": "Tile - ArcGIS REST",
+                "id": "LNG_REFERENCE_DATA_OUTBREAK_MAP_SERVER_TYPE_TILE_TILE_ARC_GIS_REST"
+            },
+            {
+                "value": "Tile - XYZ",
+                "label": "Tile - XYZ",
+                "id": "LNG_REFERENCE_DATA_OUTBREAK_MAP_SERVER_TYPE_TILE_XYZ"
+            },
+            {
+                "value": "VectorTile - VectorTileLayer",
+                "label": "VectorTile - VectorTileLayer",
+                "id": "LNG_REFERENCE_DATA_OUTBREAK_MAP_SERVER_TYPE_VECTOR_TILE_VECTOR_TILE_LAYER"
+            }
+        ]
+    ]
+]

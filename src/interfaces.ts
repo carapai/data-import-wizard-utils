@@ -1,4 +1,5 @@
-import { z } from "zod";
+import type { ZodBoolean, ZodLiteral, ZodNumber, ZodString } from "zod";
+import z from "zod";
 import { OptionBase } from "chakra-react-select";
 import { Dictionary } from "lodash";
 
@@ -14,6 +15,7 @@ export interface IMapping {
 
 export type Update = {
     attribute: string;
+    key: keyof RealMapping;
     value: any;
 };
 export type StageUpdate = Update & { stage: string };
@@ -38,7 +40,9 @@ export interface DHIS2OrgUnit extends CommonIdentifier {
     parent: Partial<DHIS2OrgUnit>;
 }
 
-export const ValueType = {
+export const ValueType: {
+    [key: string]: ZodString | ZodBoolean | ZodNumber | ZodLiteral<true>;
+} = {
     TEXT: z.string(),
     LONG_TEXT: z.string(),
     LETTER: z.string().length(1),
@@ -135,6 +139,8 @@ export interface IProgramMapping extends IMapping {
     lastUpdated: string;
     selectIncidentDatesInFuture: boolean;
     selectEnrollmentDatesInFuture: boolean;
+    destination: string;
+    source: string;
 }
 
 export interface IProgramStage {
@@ -246,6 +252,7 @@ export interface RealMapping {
     eventIdColumnIsManual: boolean;
     specific: boolean;
     valueType: string;
+    isOrgUnit: boolean;
 }
 
 export interface Mapping {
@@ -354,6 +361,7 @@ export interface Option extends OptionBase {
     valueType?: string;
     entity?: string;
     multiple?: boolean;
+    isOrgUnit?: boolean;
 }
 
 export interface MultiOption extends OptionBase {
