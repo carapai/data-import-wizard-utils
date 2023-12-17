@@ -1,24 +1,25 @@
+import { AxiosInstance } from "axios";
 import { format, parseISO } from "date-fns/fp";
-import { Dictionary, maxBy, minBy } from "lodash";
+import { Dictionary, isArray, maxBy, minBy } from "lodash";
 import {
     chunk,
     fromPairs,
     getOr,
     groupBy,
     isEmpty,
-    set,
     uniqBy,
     update,
 } from "lodash/fp";
 import { z } from "zod";
-
-import { AxiosInstance } from "axios";
 import {
     GO_DATA_EPIDEMIOLOGY_FIELDS,
     GO_DATA_EVENTS_FIELDS,
+    GO_DATA_LAB_FIELDS,
     GO_DATA_PERSON_FIELDS,
+    GO_DATA_RELATIONSHIP_FIELDS,
 } from "./constants";
 import {
+    Authentication,
     CaseInvestigationTemplate,
     DHIS2OrgUnit,
     DataValue,
@@ -26,21 +27,34 @@ import {
     Event,
     FlattenedEvent,
     FlattenedInstance,
+    GODataTokenGenerationResponse,
+    GoDataEvent,
+    GoResponse,
     IGoData,
+    IGoDataData,
+    IMapping,
     IProgram,
     IProgramMapping,
     IProgramStage,
     Mapping,
     Option,
+    ProgramMetadata,
     StageMapping,
     TrackedEntityInstance,
     ValueType,
 } from "./interfaces";
 import { generateUid } from "./uid";
-import { compareArrays, findDifference, mergeArrays } from "./utils";
+import {
+    evaluateMapping,
+    fetchRemote,
+    findChanges,
+    findUpdates,
+    postRemote,
+} from "./utils";
+import { diff } from "jiff";
 
-export const stepLabels: { [key: number]: string } = {
-    0: "Create New Mapping",
+const stepLabels: { [key: number]: string } = {
+    0: "Next Step",
     1: "Next Step",
     2: "Next Step",
     3: "Next Step",
@@ -66,7 +80,7 @@ const processEvents = (
     orgUnit: string,
     program: string,
     previousEvents: Dictionary<{
-        [key: string]: Array<{ dataElement: string; value: string }>;
+        [key: string]: { [key: string]: any };
     }>,
     stages: Dictionary<IProgramStage>,
     options: Dictionary<string>
@@ -77,47 +91,98 @@ const processEvents = (
             const stagePreviousEvents = previousEvents[programStage] || {};
             let currentData = fromPairs([["all", data]]);
             const { info, ...elements } = mapping;
-            const eventDateColumn = info.eventDateColumn || "";
-            const eventDateIsUnique = info.eventDateIsUnique;
-            const eventIdColumn = info.eventIdColumn || "";
+            const {
+                createEvents,
+                eventDateColumn,
+                updateEvents,
+                eventIdColumn,
+                eventDateIsUnique,
+            } = info;
 
-            let uniqueColumns = Object.entries(elements).flatMap(
-                ([, { unique, value }]) => {
-                    if (unique && value) {
-                        return value;
+            if ((createEvents || updateEvents) && eventDateColumn) {
+                let uniqueColumns = Object.entries(elements).flatMap(
+                    ([, { unique, value }]) => {
+                        if (unique && value) {
+                            return value;
+                        }
+                        return [];
                     }
-                    return [];
-                }
-            );
-            if (eventDateIsUnique) {
-                uniqueColumns = [...uniqueColumns, eventDateColumn];
-            }
-
-            if (eventIdColumn) {
-                uniqueColumns = [...uniqueColumns, eventIdColumn];
-            }
-
-            if (uniqueColumns.length > 0) {
-                currentData = groupBy(
-                    (item: any) =>
-                        uniqueColumns.map((column) => {
-                            if (column === eventDateColumn) {
-                                return format(
-                                    "yyyy-MM-dd",
-                                    parseISO(getOr("", column, item))
-                                );
-                            }
-                            return getOr("", column, item);
-                        }),
-                    data
                 );
-            }
+                if (eventDateIsUnique) {
+                    uniqueColumns = [...uniqueColumns, eventDateColumn];
+                }
 
-            const allValues = Object.entries(currentData);
-            if (repeatable) {
-                return allValues.flatMap(([key, currentRow]) => {
-                    const prev = stagePreviousEvents[key];
-                    return currentRow.flatMap((row) => {
+                if (eventIdColumn) {
+                    uniqueColumns = [...uniqueColumns, eventIdColumn];
+                }
+
+                if (uniqueColumns.length > 0) {
+                    currentData = groupBy(
+                        (item: any) =>
+                            uniqueColumns.map((column) => {
+                                if (column === eventDateColumn) {
+                                    return format(
+                                        "yyyy-MM-dd",
+                                        parseISO(getOr("", column, item))
+                                    );
+                                }
+                                return getOr("", column, item);
+                            }),
+                        data
+                    );
+                }
+
+                const allValues = Object.entries(currentData);
+                if (repeatable) {
+                    return allValues.flatMap(([key, currentRow]) => {
+                        const prev = stagePreviousEvents[key];
+                        return currentRow.flatMap((row) => {
+                            const eventDate: string = format(
+                                "yyyy-MM-dd",
+                                parseISO(getOr("", eventDateColumn, row))
+                            );
+                            if (eventDate) {
+                                const eventId = generateUid();
+                                const dataValues: Array<Partial<DataValue>> =
+                                    Object.entries(elements).flatMap(
+                                        ([dataElement, { value }]) => {
+                                            if (value) {
+                                                const val = getOr(
+                                                    "",
+                                                    value,
+                                                    row
+                                                );
+
+                                                if (val) {
+                                                    return {
+                                                        dataElement,
+                                                        value:
+                                                            options[val] || val,
+                                                    };
+                                                }
+                                                return [];
+                                            }
+                                            return [];
+                                        }
+                                    );
+                                return {
+                                    eventDate,
+                                    dataValues,
+                                    programStage,
+                                    enrollment,
+                                    trackedEntityInstance,
+                                    program,
+                                    orgUnit,
+                                    event: eventId,
+                                };
+                            }
+                            return [];
+                        });
+                    });
+                } else if (allValues.length > 0) {
+                    const [key, currentRow] = allValues[0];
+                    const prev = Object.values(stagePreviousEvents);
+                    const currentEvents = currentRow.flatMap((row) => {
                         const eventDate: string = format(
                             "yyyy-MM-dd",
                             parseISO(getOr("", eventDateColumn, row))
@@ -129,11 +194,14 @@ const processEvents = (
                                     ([dataElement, { value }]) => {
                                         if (value) {
                                             const val = getOr("", value, row);
-                                            const dv: Partial<DataValue> = {
-                                                dataElement,
-                                                value: options[val] || val,
-                                            };
-                                            return dv;
+
+                                            if (val) {
+                                                return {
+                                                    dataElement,
+                                                    value: options[val] || val,
+                                                };
+                                            }
+                                            return [];
                                         }
                                         return [];
                                     }
@@ -151,49 +219,42 @@ const processEvents = (
                         }
                         return [];
                     });
-                });
-            } else if (allValues.length > 0) {
-                const [key, currentRow] = allValues[0];
-                const prev = Object.values(stagePreviousEvents);
-                if (prev.length === 0) {
-                    return currentRow.flatMap((row) => {
-                        const eventDate: string = format(
-                            "yyyy-MM-dd",
-                            parseISO(getOr("", eventDateColumn, row))
+                    if (prev.length === 0) {
+                        return currentEvents;
+                    } else {
+                        const [{ event, eventDate, ...rest }] = prev;
+                        const [{ dataValues, event: e, ...others }] =
+                            currentEvents;
+                        const currentDataValues = fromPairs(
+                            dataValues.map((d: any) => [d.dataElement, d.value])
                         );
-                        if (eventDate) {
-                            const eventId = generateUid();
-                            const dataValues: Array<Partial<DataValue>> =
-                                Object.entries(elements).flatMap(
-                                    ([dataElement, { value }]) => {
-                                        if (value) {
-                                            const dv: Partial<DataValue> = {
-                                                dataElement,
-                                                value: getOr("", value, row),
-                                            };
-                                            return dv;
-                                        }
-                                        return [];
-                                    }
-                                );
+                        const difference = diff(rest, currentDataValues);
+                        const filteredDifferences = difference.filter(
+                            ({ op }) =>
+                                ["add", "replace", "copy"].indexOf(op) !== -1
+                        );
+                        console.log("are we here");
+                        if (filteredDifferences.length > 0) {
+                            console.log("Some differences");
                             return {
+                                event,
                                 eventDate,
-                                dataValues,
-                                programStage,
-                                enrollment,
-                                trackedEntityInstance,
-                                program,
-                                orgUnit,
-                                event: eventId,
+                                ...others,
+                                dataValues: Object.entries({
+                                    ...rest,
+                                    ...currentDataValues,
+                                }).map(([dataElement, value]) => ({
+                                    dataElement,
+                                    value,
+                                })),
                             };
                         }
                         return [];
-                    });
-                } else {
-                    console.log(prev);
-                    console.log("This event already exists");
+                    }
                 }
+                return [];
             }
+
             return [];
         }
     );
@@ -201,7 +262,7 @@ const processEvents = (
 
 export const convertFromDHIS2 = async (
     data: Array<Partial<FlattenedInstance>>,
-    programMapping: Partial<IProgramMapping>,
+    mapping: Partial<IMapping>,
     organisationUnitMapping: Mapping,
     attributeMapping: Mapping,
     addALlData: boolean = false,
@@ -215,30 +276,30 @@ export const convertFromDHIS2 = async (
     return data.map((instanceData) => {
         let obj: { [key: string]: any } = {};
 
-        if (programMapping.orgUnitColumn) {
+        if (mapping.orgUnitColumn) {
             update(
-                programMapping.orgUnitColumn,
+                mapping.orgUnitColumn,
                 () => organisationUnitMapping[instanceData.orgUnit],
                 obj
             );
         }
-        if (programMapping.incidentDateColumn) {
+        if (mapping.program.incidentDateColumn) {
             update(
-                programMapping.incidentDateColumn,
+                mapping.program.incidentDateColumn,
                 () => instanceData.enrollment.incidentDate,
                 obj
             );
         }
-        if (programMapping.enrollmentDateColumn) {
+        if (mapping.program.enrollmentDateColumn) {
             update(
-                programMapping.enrollmentDateColumn,
+                mapping.program.enrollmentDateColumn,
                 () => instanceData.enrollment.enrollmentDate,
                 obj
             );
         }
-        if (programMapping.trackedEntityInstanceColumn) {
+        if (mapping.program.trackedEntityInstanceColumn) {
             update(
-                programMapping.trackedEntityInstanceColumn,
+                mapping.program.trackedEntityInstanceColumn,
                 () => instanceData.trackedEntityInstance,
                 obj
             );
@@ -275,11 +336,10 @@ export const convertToGoData = (
     goData: Partial<IGoData>,
     optionMapping: Record<string, string>,
     tokens: Dictionary<string>,
-    previousData: any[]
+    previousData: GoResponse
 ) => {
-    const attributes = goData.caseInvestigationTemplate.map(({ variable }) => {
-        return variable;
-    });
+    const uniqAttributes = programUniqAttributes(attributeMapping);
+    const uniqColumns = programUniqColumns(attributeMapping);
     const flippedUnits = fromPairs(
         Object.entries(organisationUnitMapping).map(([unit, value]) => {
             return [value.value, unit];
@@ -290,142 +350,318 @@ export const convertToGoData = (
             return [value, option];
         })
     );
-    let allAttributes = fromPairs<Option>(
-        [
-            ...GO_DATA_PERSON_FIELDS,
-            ...GO_DATA_EPIDEMIOLOGY_FIELDS,
-            ...GO_DATA_EVENTS_FIELDS,
-            ...flattenGoData(goData.caseInvestigationTemplate, tokens),
-        ].map((attribute) => [attribute.value, attribute])
-    );
 
-    let errors: any[] = [];
-    let conflicts: any[] = [];
-    let updates: any[] = [];
-    let inserts: any[] = [];
+    let errors: GoResponse = {
+        person: [],
+        epidemiology: [],
+        events: [],
+        relationships: [],
+        lab: [],
+        questionnaire: [],
+    };
+
+    let conflicts: GoResponse = {
+        person: [],
+        epidemiology: [],
+        events: [],
+        relationships: [],
+        lab: [],
+        questionnaire: [],
+    };
+
+    let processed: { updates: GoResponse; inserts: GoResponse } = {
+        updates: {
+            person: [],
+            epidemiology: [],
+            events: [],
+            relationships: [],
+            lab: [],
+            questionnaire: [],
+        },
+        inserts: {
+            person: [],
+            epidemiology: [],
+            events: [],
+            relationships: [],
+            lab: [],
+            questionnaire: [],
+        },
+    };
     data.forEach((instanceData) => {
-        let questionnaireAnswers: { [key: string]: Array<{ value: any }> } = {};
-        let obj: { [key: string]: any } = {};
-        let currentConflicts: any[] = [];
-        let currentErrors: any[] = [];
-        let currentValue: { [key: string]: any } = {};
-        Object.entries(attributeMapping).forEach(([attribute, mapping]) => {
-            const currentAttribute = allAttributes[attribute];
-            if (mapping.value) {
-                const validation = ValueType[mapping.valueType];
-                let value = getOr("", mapping.value, instanceData);
-                if (mapping.specific) {
-                    value = mapping.value;
-                }
-                let result: any = { success: true };
-                if (currentAttribute.optionSetValue) {
-                    value = flippedOptions[value] || value;
-                    if (
-                        currentAttribute.availableOptions.findIndex(
-                            (v: Option) =>
-                                v.code === value ||
-                                v.id === value ||
-                                v.value === value
-                        ) !== -1
-                    ) {
-                        result = { ...result, success: true };
-                    } else {
-                        result = { ...result, success: false };
-                    }
-                } else if (validation) {
-                    try {
-                        result = validation.parse(value);
-                        result = { ...result, success: true };
-                    } catch (error) {
-                        const { issues } = error;
-                        result = { ...issues[0], success: false };
-                        if (mapping.mandatory) {
-                            currentErrors = [
-                                ...currentErrors,
-                                ...issues.map((i: any) => ({
-                                    ...i,
-                                    value,
-                                    attribute,
-                                    valueType: mapping.valueType,
-                                })),
-                            ];
-                        } else {
-                            currentConflicts = [
-                                ...currentConflicts,
-                                ...issues.map((i: any) => ({
-                                    ...i,
-                                    value,
-                                    attribute,
-                                    valueType: mapping.valueType,
-                                })),
-                            ];
-                        }
-                    }
-                }
-                if (value && result.success) {
-                    if (attributes.indexOf(attribute) !== -1) {
-                        questionnaireAnswers = {
-                            ...questionnaireAnswers,
-                            [attribute]: [{ value }],
-                        };
-                    } else {
-                        if (mapping.isOrgUnit) {
-                            currentValue = set(
-                                attribute,
-                                flippedUnits[value] || "",
-                                currentValue
-                            );
-                        } else {
-                            currentValue = set(attribute, value, currentValue);
-                        }
-                        obj = { ...obj, ...currentValue };
-                    }
-                }
-            }
-        });
-        if (currentErrors.length === 0) {
-            const instance: { [key: string]: any } = {
-                ...obj,
-                questionnaireAnswers,
-            };
-            const prev = previousData.find(
-                (i: any) => i.visualId === instance.visualId
-            );
-            if (prev) {
-                updates = [...updates, { ...instance, id: prev.id }];
-            } else {
-                inserts = [...inserts, instance];
-            }
-        }
-        errors = [...errors, ...currentErrors];
-        conflicts = [...conflicts, ...currentConflicts];
-    });
+        const all = [
+            GO_DATA_PERSON_FIELDS,
+            GO_DATA_EPIDEMIOLOGY_FIELDS,
+            GO_DATA_EVENTS_FIELDS,
+            GO_DATA_RELATIONSHIP_FIELDS,
+            GO_DATA_LAB_FIELDS,
+            flattenGoData(goData.caseInvestigationTemplate, tokens),
+        ].map((fields) =>
+            evaluateMapping(
+                attributeMapping,
+                fields,
+                instanceData,
+                flippedOptions,
+                flippedUnits,
+                uniqAttributes,
+                uniqColumns
+            )
+        );
+        const [
+            person,
+            epidemiology,
+            events,
+            relationships,
+            lab,
+            questionnaire,
+        ] = all;
 
-    return { updates, inserts, errors, conflicts };
+        const {
+            person: prevPeople,
+            epidemiology: prevEpidemiology,
+            events: prevEvents,
+            relationships: prevRelationships,
+            lab: prevLab,
+            questionnaire: prevQuestionnaire,
+        } = previousData;
+
+        if (!isEmpty(person.results)) {
+            const processedPerson = findUpdates(
+                prevPeople,
+                person.results,
+                uniqAttributes.join("")
+            );
+            processed = {
+                ...processed,
+                updates: {
+                    ...processed.updates,
+                    person: [
+                        ...processed.updates.person,
+                        ...processedPerson.update,
+                    ],
+                },
+
+                inserts: {
+                    ...processed.inserts,
+                    person: [
+                        ...processed.inserts.person,
+                        ...processedPerson.insert,
+                    ],
+                },
+            };
+        }
+        if (!isEmpty(epidemiology.results)) {
+            const processedEpidemiology = findUpdates(
+                prevEpidemiology,
+                epidemiology.results,
+                uniqAttributes.join("")
+            );
+            processed = {
+                ...processed,
+                updates: {
+                    ...processed.updates,
+
+                    epidemiology: [
+                        ...processed.updates.epidemiology,
+                        ...processedEpidemiology.update,
+                    ],
+                },
+
+                inserts: {
+                    ...processed.inserts,
+
+                    epidemiology: [
+                        ...processed.inserts.epidemiology,
+                        ...processedEpidemiology.insert,
+                    ],
+                },
+            };
+        }
+        if (!isEmpty(events.results)) {
+            const processedEvents = findUpdates(
+                prevEvents,
+                events.results,
+                uniqAttributes.join("")
+            );
+            processed = {
+                ...processed,
+                updates: {
+                    ...processed.updates,
+
+                    events: [
+                        ...processed.updates.events,
+                        ...processedEvents.update,
+                    ],
+                },
+
+                inserts: {
+                    ...processed.inserts,
+
+                    events: [
+                        ...processed.inserts.events,
+                        ...processedEvents.insert,
+                    ],
+                },
+            };
+        }
+        if (!isEmpty(relationships.results)) {
+            const processedRelationships = findUpdates(
+                prevRelationships,
+                relationships.results,
+                uniqAttributes.join("")
+            );
+            processed = {
+                ...processed,
+                updates: {
+                    ...processed.updates,
+
+                    relationships: [
+                        ...processed.updates.relationships,
+                        ...processedRelationships.update,
+                    ],
+                },
+
+                inserts: {
+                    ...processed.inserts,
+
+                    relationships: [
+                        ...processed.inserts.relationships,
+                        ...processedRelationships.insert,
+                    ],
+                },
+            };
+        }
+        if (!isEmpty(lab.results)) {
+            const processedLab = findUpdates(
+                prevLab,
+                lab.results,
+                uniqAttributes.join("")
+            );
+            processed = {
+                ...processed,
+                updates: {
+                    ...processed.updates,
+                    lab: [...processed.updates.lab, ...processedLab.update],
+                },
+
+                inserts: {
+                    ...processed.inserts,
+
+                    lab: [...processed.inserts.lab, ...processedLab.insert],
+                },
+            };
+        }
+
+        if (!isEmpty(questionnaire.results)) {
+            const processedPrevious = prevQuestionnaire.map(
+                ({ id, visualId, ...rest }: any) => {
+                    return {
+                        id,
+                        visualId,
+                        ...fromPairs(
+                            Object.entries(rest).map(([key, value]) => {
+                                if (
+                                    value &&
+                                    isArray(value) &&
+                                    !isEmpty(value[0])
+                                ) {
+                                    return [key, value[0].value];
+                                }
+                                return [];
+                            })
+                        ),
+                    };
+                }
+            );
+            const processedQuestionnaire = findUpdates(
+                processedPrevious,
+                questionnaire.results,
+                uniqAttributes.join("")
+            );
+            processed = {
+                ...processed,
+                updates: {
+                    ...processed.updates,
+                    questionnaire: [
+                        ...processed.updates.questionnaire,
+                        ...processedQuestionnaire.update,
+                    ],
+                },
+
+                inserts: {
+                    ...processed.inserts,
+                    questionnaire: [
+                        ...processed.inserts.questionnaire,
+                        ...processedQuestionnaire.insert,
+                    ],
+                },
+            };
+        }
+
+        errors = {
+            ...errors,
+            events: [...errors.events, ...events.errors],
+            person: [...errors.person, ...person.errors],
+            epidemiology: [...errors.epidemiology, ...epidemiology.errors],
+            lab: [...errors.lab, ...lab.errors],
+            relationships: [...errors.relationships, ...relationships.errors],
+            questionnaire: [...errors.questionnaire, ...questionnaire.errors],
+        };
+
+        conflicts = {
+            ...conflicts,
+            events: [...conflicts.events, ...events.conflicts],
+            person: [...conflicts.person, ...person.conflicts],
+            epidemiology: [
+                ...conflicts.epidemiology,
+                ...epidemiology.conflicts,
+            ],
+            lab: [...conflicts.lab, ...lab.conflicts],
+            relationships: [
+                ...conflicts.relationships,
+                ...relationships.conflicts,
+            ],
+            questionnaire: [
+                ...conflicts.questionnaire,
+                ...questionnaire.conflicts,
+            ],
+        };
+    });
+    return { processed, errors, conflicts };
 };
-export const convertToDHIS2 = async (
+export const convertToDHIS2 = async ({
+    program,
+    previousData,
+    data,
+    mapping,
+    version,
+    attributeMapping,
+    programStageMapping,
+    organisationUnitMapping,
+    optionMapping,
+}: {
     previousData: {
         attributes: Dictionary<Array<{ attribute: string; value: string }>>;
         dataElements: Dictionary<
             Dictionary<{
-                [key: string]: Array<{ dataElement: string; value: string }>;
+                [key: string]: { [key: string]: any };
             }>
         >;
         enrollments: Dictionary<string>;
         trackedEntities: Dictionary<string>;
         orgUnits: Dictionary<string>;
-    },
-    data: any[],
-    programMapping: Partial<IProgramMapping>,
-    organisationUnitMapping: Mapping,
-    attributeMapping: Mapping,
-    programStageMapping: StageMapping,
-    optionMapping: Record<string, string>,
-    version: number,
-    program: Partial<IProgram>,
-    elements: Dictionary<z.ZodObject<{}, "strip", z.ZodTypeAny, {}, {}>>,
-    attributesSchema: z.ZodObject<{}, "strip", z.ZodTypeAny, {}, {}>
-) => {
+    };
+    data: any[];
+    mapping: Partial<IMapping>;
+    organisationUnitMapping: Mapping;
+    attributeMapping: Mapping;
+    programStageMapping: StageMapping;
+    optionMapping: Record<string, string>;
+    version: number;
+    program: Partial<IProgram>;
+}) => {
+    const attributes = fromPairs(
+        getAttributes(program).map((a) => [a.value, a])
+    );
     const uniqAttributes = programUniqAttributes(attributeMapping);
     const uniqStageElements = programStageUniqElements(programStageMapping);
     const uniqColumns = programUniqColumns(attributeMapping);
@@ -437,16 +673,6 @@ export const convertToDHIS2 = async (
         programTrackedEntityAttributes,
         programStages,
     } = program;
-    const programAttributes = fromPairs(
-        programTrackedEntityAttributes?.map(
-            ({ trackedEntityAttribute, mandatory }) => {
-                return [
-                    trackedEntityAttribute.id,
-                    { ...trackedEntityAttribute, mandatory },
-                ];
-            }
-        )
-    );
 
     const stages = fromPairs(
         programStages.map((programStage) => {
@@ -455,7 +681,7 @@ export const convertToDHIS2 = async (
     );
 
     const { createEntities, createEnrollments, updateEntities } =
-        programMapping;
+        mapping.program;
 
     const flippedUnits = fromPairs(
         Object.entries(organisationUnitMapping).map(([unit, value]) => {
@@ -469,9 +695,9 @@ export const convertToDHIS2 = async (
         })
     );
 
-    const orgUnitColumn = programMapping.orgUnitColumn || "";
-    const enrollmentDateColumn = programMapping.enrollmentDateColumn || "";
-    const incidentDateColumn = programMapping.incidentDateColumn || "";
+    const orgUnitColumn = mapping.orgUnitColumn || "";
+    const enrollmentDateColumn = mapping.program.enrollmentDateColumn || "";
+    const incidentDateColumn = mapping.program.incidentDateColumn || "";
     let groupedData: Dictionary<any[]> = {};
 
     if (uniqColumns.length > 0) {
@@ -530,69 +756,133 @@ export const convertToDHIS2 = async (
                 uniqueKey,
                 previousData.attributes
             );
-            console.log(flippedOptions);
-            const currentAttributes = Object.entries(attributeMapping).flatMap(
-                ([attribute, { value, specific, valueType, mandatory }]) => {
-                    if (specific) {
-                        return { attribute, value };
-                    }
-                    const validation = ValueType[valueType];
-                    let realValue = getOr("", value, current[0]);
-                    realValue = flippedUnits[realValue] || realValue;
 
-                    let result: any = { success: true };
-                    if (validation) {
-                        try {
-                            result = validation.parse(realValue);
-                            result = { ...result, success: true };
-                        } catch (error) {
-                            const { issues } = error;
-                            result = { ...issues[0], success: false };
-                            if (mandatory) {
-                                currentErrors = [
-                                    ...currentErrors,
-                                    ...issues.map((i: any) => ({
-                                        ...i,
-                                        value,
-                                        attribute,
-                                        valueType,
-                                    })),
-                                ];
+            let source = {};
+            Object.entries(attributeMapping).forEach(
+                ([attribute, aMapping]) => {
+                    const currentAttribute = attributes[attribute];
+                    if (aMapping.value) {
+                        const validation = ValueType[aMapping.valueType];
+                        let value = getOr("", aMapping.value, current[0]);
+                        if (aMapping.specific) {
+                            value = aMapping.value;
+                        }
+                        let result: any = { success: true };
+
+                        if (
+                            currentAttribute &&
+                            currentAttribute.optionSetValue
+                        ) {
+                            value = flippedOptions[value] || value;
+                            if (
+                                currentAttribute.availableOptions.findIndex(
+                                    (v: Option) =>
+                                        v.code === value ||
+                                        v.id === value ||
+                                        v.value === value
+                                ) !== -1
+                            ) {
+                                result = { ...result, success: true };
                             } else {
-                                currentConflicts = [
-                                    ...currentConflicts,
-                                    ...issues.map((i: any) => ({
-                                        ...i,
-                                        value,
-                                        attribute,
-                                        valueType,
-                                    })),
-                                ];
+                                if (aMapping.mandatory) {
+                                    currentErrors = [
+                                        ...currentErrors,
+                                        {
+                                            id: Date.now() + Math.random(),
+                                            value,
+                                            attribute,
+                                            valueType:
+                                                currentAttribute.valueType,
+                                            message: `Expected values (${currentAttribute.availableOptions
+                                                .map(({ value }) => value)
+                                                .join(",")})`,
+                                        },
+                                    ];
+                                } else if (value) {
+                                    currentConflicts = [
+                                        ...currentConflicts,
+                                        {
+                                            id: Date.now() + Math.random(),
+                                            value,
+                                            attribute,
+                                            valueType:
+                                                currentAttribute.valueType,
+                                            message: `Expected values (${currentAttribute.availableOptions
+                                                .map(({ value }) => value)
+                                                .join(",")})`,
+                                        },
+                                    ];
+                                }
+                                result = { ...result, success: false };
+                            }
+                        } else if (validation) {
+                            try {
+                                result = validation.parse(value);
+                                result = { ...result, success: true };
+                            } catch (error) {
+                                const { issues } = error;
+                                result = { ...issues[0], success: false };
+                                if (aMapping.mandatory) {
+                                    currentErrors = [
+                                        ...currentErrors,
+                                        ...issues.map((i: any) => ({
+                                            ...i,
+                                            value,
+                                            attribute,
+                                            valueType: aMapping.valueType,
+                                            id: Date.now() + Math.random(),
+                                        })),
+                                    ];
+                                } else if (value) {
+                                    currentConflicts = [
+                                        ...currentConflicts,
+                                        ...issues.map((i: any) => ({
+                                            ...i,
+                                            value,
+                                            attribute,
+                                            valueType: aMapping.valueType,
+                                            id: Date.now() + Math.random(),
+                                        })),
+                                    ];
+                                }
                             }
                         }
+                        if (value && result.success) {
+                            source = {
+                                ...source,
+                                [attribute]: value,
+                            };
+                        }
                     }
-                    if (realValue && result.success) {
-                        return {
-                            attribute,
-                            value: flippedOptions[realValue] || realValue,
-                        };
-                    }
-                    return [];
                 }
             );
 
-            const isTheSame = compareArrays(
-                currentAttributes,
-                previousAttributes,
-                "attribute"
+            const destination = fromPairs(
+                previousAttributes.map(({ attribute, value }) => [
+                    attribute,
+                    value,
+                ])
             );
-            if (previousAttributes.length > 0 && updateEntities) {
-                if (!isTheSame) {
-                    const attributes = mergeArrays(
-                        currentAttributes,
-                        previousAttributes,
-                        "attribute"
-                    );
+
+            const differences = findChanges({
+                destination,
+                source,
+            });
+
+            const difference = diff(destination, source);
+            const filteredDifferences = difference.filter(
+                ({ op }) => ["add", "replace", "copy"].indexOf(op) !== -1
+            );
+            if (
+                previousAttributes.length > 0 &&
+                updateEntities &&
+                currentErrors.length === 0
+            ) {
+                if (!isEmpty(differences)) {
+                    const attributes = Object.entries({
+                        ...destination,
+                        ...differences,
+                    }).map(([attribute, value]) => ({ attribute, value }));
                     results = {
                         ...results,
                         trackedEntityUpdates: [
@@ -600,7 +890,7 @@ export const convertToDHIS2 = async (
                                 trackedEntityInstance: previousTrackedEntity,
                                 attributes,
                                 trackedEntityType:
-                                    programMapping.trackedEntityType,
+                                    mapping.program.trackedEntityType,
                                 orgUnit: previousOrgUnit,
                             },
                         ],
@@ -623,13 +913,26 @@ export const convertToDHIS2 = async (
                         trackedEntities: [
                             {
                                 trackedEntityInstance: previousTrackedEntity,
-                                attributes: currentAttributes,
+                                attributes: Object.entries({
+                                    ...differences,
+                                }).map(([attribute, value]) => ({
+                                    attribute,
+                                    value,
+                                })),
                                 trackedEntityType:
-                                    programMapping.trackedEntityType,
+                                    mapping.program.trackedEntityType,
                                 orgUnit: previousOrgUnit,
                             },
                         ],
                     };
+                } else {
+                    currentErrors = [
+                        ...currentErrors,
+                        {
+                            value: "Missing",
+                            attribute: "OrgUnit",
+                        },
+                    ];
                 }
             }
             if (createEnrollments && isEmpty(previousEnrollment)) {
@@ -642,7 +945,7 @@ export const convertToDHIS2 = async (
                 if (previousOrgUnit && enrollmentDate && incidentDate) {
                     previousEnrollment = generateUid();
                     const enrollment = {
-                        program: programMapping.program,
+                        program: mapping.program.program,
                         trackedEntityInstance: previousTrackedEntity,
                         orgUnit: previousOrgUnit,
                         enrollmentDate: format(
@@ -657,12 +960,19 @@ export const convertToDHIS2 = async (
                     };
 
                     results = { ...results, enrollments: [enrollment] };
+                } else {
+                    currentErrors = [
+                        ...currentErrors,
+                        {
+                            value: "Missing",
+                            attribute: "enrollment date and/or incident date",
+                        },
+                    ];
                 }
             } else if (!isEmpty(previousEnrollment)) {
             }
 
             let events = [];
-
             if (
                 previousOrgUnit &&
                 previousEnrollment &&
@@ -674,7 +984,7 @@ export const convertToDHIS2 = async (
                     previousTrackedEntity,
                     previousEnrollment,
                     previousOrgUnit,
-                    programMapping.program || "",
+                    mapping.program.program || "",
                     getOr({}, uniqueKey, previousData.dataElements),
                     stages,
                     flippedOptions
@@ -746,7 +1056,13 @@ export const processPreviousInstances = (
                 .sort()
                 .join("");
             currentTrackedEntities.push([attributeKey, trackedEntityInstance]);
-            currentAttributes.push([attributeKey, attributes]);
+            currentAttributes.push([
+                attributeKey,
+                attributes.map(({ attribute, value }) => ({
+                    attribute,
+                    value,
+                })),
+            ]);
             currentOrgUnits.push([attributeKey, String(orgUnit)]);
 
             if (enrollments.length > 0) {
@@ -761,57 +1077,44 @@ export const processPreviousInstances = (
                         ([stage, availableEvents]) => {
                             const stageElements =
                                 programStageUniqueElements[stage];
+                            const elements = availableEvents.map((event) => {
+                                const finalValues = [
+                                    ...event.dataValues,
+                                    {
+                                        dataElement: "eventDate",
+                                        value: format(
+                                            "yyyy-MM-dd",
+                                            parseISO(event.eventDate)
+                                        ),
+                                    },
+                                    {
+                                        dataElement: "event",
+                                        value: event.event,
+                                    },
+                                ].map(({ dataElement, value }) => [
+                                    dataElement,
+                                    value,
+                                ]);
 
-                            if (stageElements && stageElements.length > 0) {
-                                console.log("Are we here now");
-                                console.log(
-                                    stage,
-                                    programStageUniqueElements,
-                                    stageElements
-                                );
-                                const elements = availableEvents.map(
-                                    (event) => {
-                                        const finalValues = [
-                                            ...event.dataValues,
-                                            {
-                                                dataElement: "eventDate",
-                                                value: format(
-                                                    "yyyy-MM-dd",
-                                                    parseISO(event.eventDate)
-                                                ),
-                                            },
-                                            {
-                                                dataElement: "event",
-                                                value: event.event,
-                                            },
-                                        ].map(({ dataElement, value }) => [
-                                            dataElement,
-                                            value,
-                                        ]);
-                                        const dataElementKey = finalValues
-                                            .flatMap(([dataElement, value]) => {
-                                                if (
-                                                    dataElement &&
-                                                    stageElements.indexOf(
-                                                        dataElement
-                                                    ) !== -1
-                                                ) {
-                                                    return value;
-                                                }
-                                                return [];
-                                            })
-                                            .sort()
-                                            .join("");
+                                const dataElementKey = finalValues
+                                    .flatMap(([dataElement, value]) => {
+                                        if (
+                                            dataElement &&
+                                            stageElements &&
+                                            stageElements.indexOf(
+                                                dataElement
+                                            ) !== -1
+                                        ) {
+                                            return value;
+                                        }
+                                        return [];
+                                    })
+                                    .sort()
+                                    .join("");
 
-                                        return [
-                                            dataElementKey,
-                                            fromPairs(finalValues),
-                                        ];
-                                    }
-                                );
-                                return [[stage, fromPairs(elements)]];
-                            }
-                            return [stage, availableEvents.map((e) => [e])];
+                                return [dataElementKey, fromPairs(finalValues)];
+                            });
+                            return [[stage, fromPairs(elements)]];
                         }
                     );
                     currentElements.push([
@@ -829,7 +1132,7 @@ export const processPreviousInstances = (
             ),
         dataElements: fromPairs<
             Dictionary<{
-                [key: string]: Array<{ dataElement: string; value: string }>;
+                [key: string]: { [key: string]: any };
             }>
         >(currentElements),
         enrollments: fromPairs<string>(currentEnrollments),
@@ -935,33 +1238,38 @@ const getOrgUnits = (program: Partial<IProgram>): Array<Option> => {
     });
 };
 const getAttributes = (program: Partial<IProgram>): Array<Option> => {
-    return program.programTrackedEntityAttributes?.map(
-        ({
-            trackedEntityAttribute: {
-                id,
-                name,
-                code,
-                unique,
-                optionSetValue,
-                optionSet,
-            },
-        }) => {
-            return {
-                label: name,
-                value: id,
-                code,
-                unique,
-                optionSetValue,
-                availableOptions:
-                    optionSet?.options.map(({ code, id, name }) => ({
-                        label: name,
-                        code,
-                        value: code,
-                        id,
-                    })) || [],
-            };
-        }
-    );
+    if (!isEmpty(program) && program.programTrackedEntityAttributes) {
+        return program.programTrackedEntityAttributes.map(
+            ({
+                mandatory,
+                trackedEntityAttribute: {
+                    id,
+                    name,
+                    code,
+                    unique,
+                    optionSetValue,
+                    optionSet,
+                },
+            }) => {
+                return {
+                    label: name,
+                    value: id,
+                    code,
+                    unique,
+                    mandatory,
+                    optionSetValue,
+                    availableOptions:
+                        optionSet?.options.map(({ code, id, name }) => ({
+                            label: name,
+                            code,
+                            value: code,
+                            id,
+                        })) || [],
+                };
+            }
+        );
+    }
+    return [];
 };
 
 export const flattenGoData = (
@@ -969,29 +1277,36 @@ export const flattenGoData = (
     tokens: Dictionary<string> = {}
 ) => {
     return caseInvestigationTemplates.flatMap(
-        ({ variable, required, multiAnswer, answers, answerType, text }) => {
+        ({
+            variable,
+            required,
+            multiAnswer,
+            answers,
+            answerType,
+            text,
+        }): Option[] => {
             const original = tokens[text] || variable;
             if (
                 answerType ===
                 "LNG_REFERENCE_DATA_CATEGORY_QUESTION_ANSWER_TYPE_MULTIPLE_ANSWERS"
             ) {
-                // return [];
                 return answers.flatMap(
                     ({ additionalQuestions, value, order, alert, label }) => {
                         const currentLabel = tokens[label] || label;
                         const currentOpt = {
                             label: `${original} ${currentLabel}`,
-                            value,
+                            value: `questionnaireAnswers.${value}[0].value`,
                             mandatory: false,
                             availableOptions: [],
                             optionSetValue: false,
+                            parent: variable,
                         };
                         if (additionalQuestions) {
                             const additional = additionalQuestions.map(
                                 ({ variable, text }) => {
                                     return {
                                         label: tokens[text] || variable,
-                                        value: variable,
+                                        value: `questionnaireAnswers.${variable}[0].value`,
                                     };
                                 }
                             );
@@ -1007,7 +1322,7 @@ export const flattenGoData = (
                         value: variable,
                         mandatory: required,
                         availableOptions: answers.map(({ value, label }) => ({
-                            value,
+                            value: `questionnaireAnswers.${variable}[0].value`,
                             label: value,
                             name: value,
                             code: "",
@@ -1021,7 +1336,7 @@ export const flattenGoData = (
                                 ({ variable, text }) => {
                                     return {
                                         label: tokens[text] || variable,
-                                        value: variable,
+                                        value: `questionnaireAnswers.${variable}[0].value`,
                                     };
                                 }
                             );
@@ -1050,7 +1365,7 @@ export const findUniqAttributes = (data: any[], attributeMapping: Mapping) => {
 
 export const makeMetadata = (
     program: Partial<IProgram>,
-    programMapping: Partial<IProgramMapping>,
+    programMapping: Partial<IMapping>,
     {
         data,
         attributeMapping,
@@ -1070,7 +1385,14 @@ export const makeMetadata = (
     }>
 ) => {
     const destinationOrgUnits = getOrgUnits(program);
-    const destinationAttributes = getAttributes(program);
+    const destinationAttributes = getAttributes(program).sort((a, b) => {
+        if (a.mandatory && !b.mandatory) {
+            return -1;
+        } else if (!a.mandatory && b.mandatory) {
+            return 1;
+        }
+        return 0;
+    });
     const uniqueAttributeValues = findUniqAttributes(data, attributeMapping);
     const destinationStages =
         program?.programStages?.map(({ id, name }) => {
@@ -1080,22 +1402,7 @@ export const makeMetadata = (
             };
             return option;
         }) || [];
-    let results: {
-        sourceOrgUnits: Array<Option>;
-        destinationOrgUnits: Array<Option>;
-        sourceColumns: Array<Option>;
-        destinationColumns: Array<Option>;
-        sourceAttributes: Array<Option>;
-        destinationAttributes: Array<Option>;
-        sourceStages: Array<Option>;
-        destinationStages: Array<Option>;
-        uniqueAttributeValues: Array<{ attribute: string; value: string }>;
-        epidemiology: Array<Option>;
-        personal: Array<Option>;
-        questionnaire: Array<Option>;
-        events: Array<Option>;
-        lab: Array<Option>;
-    } = {
+    const results: ProgramMetadata = {
         sourceOrgUnits: [],
         destinationOrgUnits,
         sourceColumns: [],
@@ -1106,13 +1413,15 @@ export const makeMetadata = (
         sourceStages: [],
         uniqueAttributeValues,
         epidemiology: [],
-        personal: [],
+        case: [],
         questionnaire: [],
         events: [],
         lab: [],
+        relationship: [],
+        contact: [],
     };
 
-    if (programMapping.dataSource === "dhis2") {
+    if (programMapping.dataSource === "dhis2-program") {
         const sourceOrgUnits: Array<Option> = getOrgUnits(dhis2Program);
         const attributes = getAttributes(dhis2Program);
         const stages = dhis2Program.programStages?.map(({ id, name }) => {
@@ -1123,28 +1432,11 @@ export const makeMetadata = (
             return option;
         });
         const stageDataElements = flattenProgram(dhis2Program);
-        if (programMapping.isSource) {
-            results = {
-                ...results,
-                sourceOrgUnits: results.destinationOrgUnits,
-                destinationOrgUnits: sourceOrgUnits,
-                destinationAttributes: attributes,
-                sourceAttributes: results.destinationAttributes,
-                destinationColumns: stageDataElements,
-                sourceColumns: results.destinationColumns,
-                destinationStages: stages,
-                sourceStages: results.destinationStages,
-            };
-        } else {
-            results = {
-                ...results,
-                sourceOrgUnits,
-                sourceAttributes: attributes,
-                sourceColumns: stageDataElements,
-                sourceStages: stages,
-            };
-        }
-    } else if (programMapping.dataSource === "godata") {
+        results.sourceStages = stages;
+        results.sourceColumns = stageDataElements;
+        results.sourceAttributes = attributes;
+        results.sourceOrgUnits = sourceOrgUnits;
+    } else if (programMapping.dataSource === "go-data") {
         let units = [];
         let columns: Option[] = [];
         if (remoteOrganisations.length > 0) {
@@ -1158,6 +1450,7 @@ export const makeMetadata = (
             ...GO_DATA_PERSON_FIELDS,
             ...GO_DATA_EPIDEMIOLOGY_FIELDS,
             ...GO_DATA_EVENTS_FIELDS,
+            ...GO_DATA_LAB_FIELDS,
         ];
         let investigationTemplate = [];
         if (goData && goData.caseInvestigationTemplate) {
@@ -1167,64 +1460,88 @@ export const makeMetadata = (
             );
         }
         columns = [...attributes, ...columns, ...investigationTemplate];
-        if (programMapping.isSource) {
-            results = {
-                ...results,
-                destinationOrgUnits: units,
-                sourceOrgUnits: results.destinationOrgUnits,
-                sourceAttributes: results.destinationAttributes,
-                sourceColumns: results.destinationColumns,
-                destinationColumns: columns.sort((a, b) => {
-                    if (a.mandatory && !b.mandatory) {
-                        return -1;
-                    } else if (!a.mandatory && b.mandatory) {
-                        return 1;
-                    }
-                    return 0;
-                }),
-                destinationAttributes: attributes,
-                destinationStages: [],
-                sourceStages: results.destinationStages,
-                epidemiology: GO_DATA_EPIDEMIOLOGY_FIELDS.sort((a, b) => {
-                    if (a.mandatory && !b.mandatory) {
-                        return -1;
-                    } else if (!a.mandatory && b.mandatory) {
-                        return 1;
-                    }
-                    return 0;
-                }),
-                personal: GO_DATA_PERSON_FIELDS.sort((a, b) => {
-                    if (a.mandatory && !b.mandatory) {
-                        return -1;
-                    } else if (!a.mandatory && b.mandatory) {
-                        return 1;
-                    }
-                    return 0;
-                }),
-                events: uniqBy("value", [
-                    ...attributes.filter(
-                        ({ entity }) => entity && entity.indexOf("EVENT") !== -1
-                    ),
-                    ...GO_DATA_EVENTS_FIELDS,
-                ]),
-                questionnaire: investigationTemplate,
-            };
-        } else {
-            results = {
-                ...results,
-                sourceOrgUnits: units,
-                sourceColumns: columns,
-                sourceAttributes: attributes,
-            };
-        }
+        results.sourceOrgUnits = units;
+        results.sourceColumns = columns.sort((a, b) => {
+            if (a.mandatory && !b.mandatory) {
+                return -1;
+            } else if (!a.mandatory && b.mandatory) {
+                return 1;
+            }
+            return 0;
+        });
+        results.sourceAttributes = attributes;
+        results.epidemiology = GO_DATA_EPIDEMIOLOGY_FIELDS.sort((a, b) => {
+            if (a.mandatory && !b.mandatory) {
+                return -1;
+            } else if (!a.mandatory && b.mandatory) {
+                return 1;
+            }
+            return 0;
+        });
+        results.case = uniqBy(
+            "value",
+            GO_DATA_PERSON_FIELDS.filter(
+                ({ entity }) => entity && entity.indexOf("CASE") !== -1
+            )
+        ).sort((a, b) => {
+            if (a.mandatory && !b.mandatory) {
+                return -1;
+            } else if (!a.mandatory && b.mandatory) {
+                return 1;
+            }
+            return 0;
+        });
+        results.contact = uniqBy(
+            "value",
+            GO_DATA_PERSON_FIELDS.filter(
+                ({ entity }) => entity && entity.indexOf("CONTACT") !== -1
+            )
+        ).sort((a, b) => {
+            if (a.mandatory && !b.mandatory) {
+                return -1;
+            } else if (!a.mandatory && b.mandatory) {
+                return 1;
+            }
+            return 0;
+        });
+        results.events = uniqBy("value", [
+            ...attributes.filter(
+                ({ entity }) => entity && entity.indexOf("EVENT") !== -1
+            ),
+            ...GO_DATA_EVENTS_FIELDS,
+        ]).sort((a, b) => {
+            if (a.mandatory && !b.mandatory) {
+                return -1;
+            } else if (!a.mandatory && b.mandatory) {
+                return 1;
+            }
+            return 0;
+        });
+        results.lab = GO_DATA_LAB_FIELDS.sort((a, b) => {
+            if (a.mandatory && !b.mandatory) {
+                return -1;
+            } else if (!a.mandatory && b.mandatory) {
+                return 1;
+            }
+            return 0;
+        });
+        results.relationship = GO_DATA_RELATIONSHIP_FIELDS.sort((a, b) => {
+            if (a.mandatory && !b.mandatory) {
+                return -1;
+            } else if (!a.mandatory && b.mandatory) {
+                return 1;
+            }
+            return 0;
+        });
+        results.questionnaire = investigationTemplate;
     } else {
         let columns: Array<Option> = [];
         if (
-            programMapping.metadataOptions &&
-            programMapping.metadataOptions.metadata &&
-            programMapping.metadataOptions.metadata.length > 0
+            programMapping.program.metadataOptions &&
+            programMapping.program.metadataOptions.metadata &&
+            programMapping.program.metadataOptions.metadata.length > 0
         ) {
-            columns = programMapping.metadataOptions.metadata;
+            columns = programMapping.program.metadataOptions.metadata;
         } else if (data.length > 0) {
             columns = Object.keys(data[0]).map((key) => {
                 const option: Option = {
@@ -1259,27 +1576,31 @@ export const makeMetadata = (
                 })
             );
         }
-        if (programMapping.isSource) {
-            results = {
-                ...results,
-                destinationOrgUnits: units,
-                sourceOrgUnits: results.destinationOrgUnits,
-                sourceAttributes: results.destinationAttributes,
-                destinationColumns: columns,
-                uniqueAttributeValues,
-                sourceStages: results.destinationStages,
-                sourceColumns: results.destinationColumns,
-                destinationStages: [],
-            };
-        } else {
-            results = {
-                ...results,
-                sourceOrgUnits: units,
-                sourceColumns: columns,
-                sourceAttributes: columns,
-                uniqueAttributeValues,
-            };
-        }
+
+        results.sourceOrgUnits = units;
+        results.sourceColumns = columns;
+        results.sourceAttributes = columns;
+    }
+
+    if (programMapping.isSource) {
+        return {
+            sourceColumns: results.destinationColumns,
+            destinationColumns: results.sourceColumns,
+            sourceOrgUnits: results.destinationOrgUnits,
+            destinationOrgUnits: results.sourceOrgUnits,
+            sourceAttributes: results.destinationAttributes,
+            destinationAttributes: results.sourceAttributes,
+            sourceStages: results.destinationStages,
+            destinationStages: results.sourceStages,
+            uniqueAttributeValues,
+            epidemiology: results.epidemiology,
+            case: results.case,
+            contact: results.contact,
+            questionnaire: results.questionnaire,
+            events: results.events,
+            lab: results.lab,
+            relationship: results.relationship,
+        };
     }
     return results;
 };
@@ -1335,9 +1656,9 @@ export const makeValidation = (state: Partial<IProgram>) => {
     return { elements, attributes };
 };
 
-export const canQueryDHIS2 = (state: Partial<IProgramMapping>) => {
+export const canQueryDHIS2 = (state: Partial<IMapping>) => {
     return (
-        state.dataSource === "dhis2" &&
+        state.dataSource === "dhis2-program" &&
         state.authentication?.url &&
         ((state.authentication?.username && state.authentication?.password) ||
             !isEmpty(state.authentication.headers))
@@ -1437,24 +1758,12 @@ export const columns = (state: any[]) => {
     return [];
 };
 
-const validURL = (
-    programMapping: Partial<IProgramMapping>,
-    mySchema: z.ZodSchema
-) => {
-    if (
-        !isEmpty(programMapping.name) &&
-        ["api", "godata", "dhis2"].indexOf(programMapping.dataSource) !== -1
-    ) {
-        return mySchema.safeParse(programMapping.authentication?.url).success;
-    }
-    return true;
+const validURL = (programMapping: Partial<IMapping>, mySchema: z.ZodSchema) => {
+    return mySchema.safeParse(programMapping.authentication?.url).success;
 };
 
-const hasLogins = (programMapping: Partial<IProgramMapping>) => {
-    if (
-        ["godata", "api", "dhis2"].indexOf(programMapping.dataSource) &&
-        programMapping.authentication.basicAuth
-    ) {
+const hasLogins = (programMapping: Partial<IMapping>) => {
+    if (programMapping.authentication?.basicAuth) {
         return (
             !isEmpty(programMapping.authentication.username) &&
             !isEmpty(programMapping.authentication.password)
@@ -1463,31 +1772,32 @@ const hasLogins = (programMapping: Partial<IProgramMapping>) => {
     return true;
 };
 
-const hasRemote = (programMapping: Partial<IProgramMapping>) => {
-    if (["godata", "dhis2"].indexOf(programMapping.dataSource) !== -1) {
-        return !isEmpty(programMapping.remoteProgram);
-    }
-    return true;
+const hasRemote = (programMapping: Partial<IMapping>) => {
+    return !isEmpty(programMapping.program.remoteProgram);
 };
 
-const hasProgram = (programMapping: Partial<IProgramMapping>) =>
-    !isEmpty(programMapping.program);
+const hasName = (programMapping: Partial<IMapping>) => {
+    return !!programMapping.name && !!programMapping.dataSource;
+};
 
-const hasOrgUnitColumn = (programMapping: Partial<IProgramMapping>) =>
+const hasProgram = (programMapping: Partial<IMapping>) =>
+    !isEmpty(programMapping.program.program);
+
+const hasOrgUnitColumn = (programMapping: Partial<IMapping>) =>
     !isEmpty(programMapping.orgUnitColumn);
 
-const createEnrollment = (programMapping: Partial<IProgramMapping>) => {
-    if (programMapping.createEnrollments) {
+const createEnrollment = (programMapping: Partial<IMapping>) => {
+    if (programMapping.program.createEnrollments) {
         return (
-            !isEmpty(programMapping.enrollmentDateColumn) &&
-            !isEmpty(programMapping.incidentDateColumn)
+            !isEmpty(programMapping.program.enrollmentDateColumn) &&
+            !isEmpty(programMapping.program.incidentDateColumn)
         );
     }
     return true;
 };
 
 const hasOrgUnitMapping = (
-    programMapping: Partial<IProgramMapping>,
+    programMapping: Partial<IMapping>,
     organisationUnitMapping: Mapping
 ) =>
     createEnrollment(programMapping) &&
@@ -1516,57 +1826,252 @@ const mandatoryAttributesMapped = (
             return [];
         }
     );
-
     if (mandatoryFields.length > 0) {
         return mandatoryFields.every((value) => value === true);
     }
     return true;
 };
 
-export const isDisabled = (
-    programMapping: Partial<IProgramMapping>,
-    programStageMapping: StageMapping,
-    attributeMapping: Mapping,
-    organisationUnitMapping: Mapping,
-    step: number,
-    mySchema: z.ZodSchema,
-    destinationFields: Option[]
-) => {
-    if (step === 2) {
-        return !hasProgram(programMapping);
-    }
-
-    if (step === 3) {
-        return (
-            !validURL(programMapping, mySchema) || !hasLogins(programMapping)
+const mandatoryGoDataMapped = ({
+    mapping,
+    attributeMapping,
+    metadata,
+}: {
+    mapping: Partial<IMapping>;
+    attributeMapping: Mapping;
+    metadata: ProgramMetadata;
+}) => {
+    const allAttributes = Object.keys(attributeMapping);
+    const hasLab = metadata.lab.find(
+        ({ value }) => allAttributes.indexOf(value) !== -1
+    );
+    if (mapping.program.responseKey === "EVENT") {
+        return mandatoryAttributesMapped(metadata.events, attributeMapping);
+    } else if (mapping.program.responseKey === "CASE") {
+        if (hasLab) {
+            return mandatoryAttributesMapped(
+                [...metadata.case, ...metadata.epidemiology, ...metadata.lab],
+                attributeMapping
+            );
+        }
+        return mandatoryAttributesMapped(
+            [...metadata.case, ...metadata.epidemiology],
+            attributeMapping
         );
-    }
-
-    if (
-        programMapping.isSource &&
-        programMapping.dataSource === "godata" &&
-        step === 4
-    ) {
-        return !hasRemote(programMapping);
-    }
-
-    if (step === 5 && ["godata", "dhis2"].indexOf(programMapping.dataSource)) {
-        return !(Object.keys(organisationUnitMapping).length > 0);
-    }
-    if (
-        programMapping.dataSource === "godata" &&
-        step === 6 &&
-        programMapping.isSource
-    ) {
-        return !mandatoryAttributesMapped(
-            destinationFields.filter(
-                ({ entity }) =>
-                    entity && entity.indexOf(programMapping.responseKey) !== -1
-            ),
+    } else if (mapping.program.responseKey === "CONTACT") {
+        if (hasLab) {
+            return mandatoryAttributesMapped(
+                [
+                    ...metadata.contact,
+                    ...metadata.epidemiology,
+                    ...metadata.relationship,
+                    ...metadata.lab,
+                ],
+                attributeMapping
+            );
+        }
+        return mandatoryAttributesMapped(
+            [
+                ...metadata.contact,
+                ...metadata.epidemiology,
+                ...metadata.relationship,
+            ],
             attributeMapping
         );
     }
-    return false;
+};
+
+const isValidProgramStage = (
+    program: Partial<IProgram>,
+    programStageMapping: StageMapping
+) => {
+    if (isEmpty(programStageMapping)) {
+        return true;
+    }
+
+    const all = Object.entries(programStageMapping).map(([stage, mapping]) => {
+        const { info, ...rest } = mapping || {};
+        const currentStage = program.programStages.find(
+            ({ id }) => id === stage
+        );
+        if (
+            (info.createEvents || info.updateEvents) &&
+            info.eventDateColumn &&
+            currentStage
+        ) {
+            const allCompulsoryMapped =
+                currentStage.programStageDataElements.flatMap(
+                    ({ compulsory, dataElement: { id } }) => {
+                        if (compulsory && rest[id].value) {
+                            return true;
+                        } else if (compulsory) {
+                            return false;
+                        }
+                        return true;
+                    }
+                );
+            return allCompulsoryMapped.every((e) => e === true);
+        } else if (info.createEvents || info.updateEvents) {
+            return false;
+        }
+        return true;
+    });
+    return all.every((e) => e === true);
+};
+
+export const isDisabled = ({
+    programMapping,
+    programStageMapping,
+    attributeMapping,
+    organisationUnitMapping,
+    step,
+    mySchema,
+    destinationFields,
+    data,
+    program,
+    metadata,
+    hasError,
+}: {
+    programMapping: Partial<IMapping>;
+    programStageMapping: StageMapping;
+    attributeMapping: Mapping;
+    organisationUnitMapping: Mapping;
+    step: number;
+    mySchema: z.ZodSchema;
+    destinationFields: Option[];
+    data: any[];
+    program: Partial<IProgram>;
+    metadata: ProgramMetadata;
+    hasError: boolean;
+}) => {
+    const allOptions = {
+        2: {
+            "go-data":
+                !hasName(programMapping) ||
+                !validURL(programMapping, mySchema) ||
+                !hasLogins(programMapping),
+            "csv-line-list": data.length === 0 || !hasName(programMapping),
+            "xlsx-line-list": data.length === 0 || !hasName(programMapping),
+            "dhis2-program": data.length === 0 || !hasName(programMapping),
+            json: data.length === 0 || !hasName(programMapping),
+            api: data.length === 0 || !hasName(programMapping),
+        },
+        3: {
+            "go-data": !hasProgram(programMapping),
+            "csv-line-list": !hasProgram(programMapping),
+            "xlsx-line-list": !hasProgram(programMapping),
+            "dhis2-program": !hasProgram(programMapping),
+            json: !hasProgram(programMapping),
+            api: !hasProgram(programMapping),
+        },
+        4: {
+            "go-data": false,
+            "csv-line-list": false,
+            "xlsx-line-list": false,
+            "dhis2-program": false,
+            json: false,
+            api: false,
+        },
+        5: {
+            "go-data": !hasRemote(programMapping),
+            "csv-line-list": false,
+            "xlsx-line-list": false,
+            "dhis2-program": false,
+            json: false,
+            api: false,
+        },
+        6: {
+            "go-data": false,
+            "csv-line-list": false,
+            "xlsx-line-list": false,
+            "dhis2-program": false,
+            json: false,
+            api: false,
+        },
+        7: {
+            "go-data": !hasOrgUnitMapping(
+                programMapping,
+                organisationUnitMapping
+            ),
+            "csv-line-list": !hasOrgUnitMapping(
+                programMapping,
+                organisationUnitMapping
+            ),
+            "xlsx-line-list": !hasOrgUnitMapping(
+                programMapping,
+                organisationUnitMapping
+            ),
+            "dhis2-program": !hasOrgUnitMapping(
+                programMapping,
+                organisationUnitMapping
+            ),
+            json: !hasOrgUnitMapping(programMapping, organisationUnitMapping),
+            api: !hasOrgUnitMapping(programMapping, organisationUnitMapping),
+        },
+        8: {
+            "go-data": !mandatoryGoDataMapped({
+                mapping: programMapping,
+                attributeMapping,
+                metadata,
+            }),
+            "csv-line-list": false,
+            "xlsx-line-list": false,
+            "dhis2-program": false,
+            json: false,
+            api: false,
+        },
+        9: {
+            "go-data": !mandatoryAttributesMapped(
+                destinationFields,
+                attributeMapping
+            ),
+            "csv-line-list": false,
+            "xlsx-line-list": false,
+            "dhis2-program": false,
+            json: false,
+            api: false,
+        },
+        10: {
+            "go-data": !isValidProgramStage(program, programStageMapping),
+            "csv-line-list": !isValidProgramStage(program, programStageMapping),
+            "xlsx-line-list": !isValidProgramStage(
+                program,
+                programStageMapping
+            ),
+            "dhis2-program": !isValidProgramStage(program, programStageMapping),
+            json: !isValidProgramStage(program, programStageMapping),
+            api: !isValidProgramStage(program, programStageMapping),
+        },
+        11: {
+            "go-data": false,
+            "csv-line-list": false,
+            "xlsx-line-list": false,
+            "dhis2-program": false,
+            json: false,
+            api: false,
+        },
+        12: {
+            "go-data": false,
+            "csv-line-list": false,
+            "xlsx-line-list": false,
+            "dhis2-program": false,
+            json: false,
+            api: false,
+        },
+        13: {
+            "go-data": false,
+            "csv-line-list": false,
+            "xlsx-line-list": false,
+            "dhis2-program": false,
+            json: false,
+            api: false,
+        },
+    };
+    if (hasError) return hasError;
+    if (programMapping.dataSource) {
+        return allOptions[step][programMapping.dataSource];
+    }
+    return true;
 };
 
 export const findColumns = (state: any[]) => {
@@ -1582,14 +2087,13 @@ export const findColumns = (state: any[]) => {
     return [];
 };
 
-export const label = (
-    step: number,
-    programMapping: Partial<IProgramMapping>
-) => {
+export const label = (step: number, programMapping: Partial<IMapping>) => {
+    if (step === 12) return "Import";
+    if (step === 13) return "Go To Mappings";
     return stepLabels[step];
 };
 
-export const flattenProgram = (program: Partial<IProgram>): Array<Option> => {
+export const flattenProgram = (program: Partial<IProgram>) => {
     if (!isEmpty(program)) {
         const { programTrackedEntityAttributes, programStages } = program;
         const attributes = programTrackedEntityAttributes.map(
@@ -1617,10 +2121,11 @@ export const flattenProgram = (program: Partial<IProgram>): Array<Option> => {
                     ({
                         dataElement: { id, name, optionSetValue, optionSet },
                     }) => {
-                        const option: Option = {
+                        return {
                             label: `${stageName}-${name}`,
                             value: `last.${stageId}.values.${id}`,
                             optionSetValue: optionSetValue || false,
+                            id,
                             availableOptions:
                                 optionSet?.options.map(
                                     ({ code, id, name }) => ({
@@ -1631,7 +2136,6 @@ export const flattenProgram = (program: Partial<IProgram>): Array<Option> => {
                                     })
                                 ) || [],
                         };
-                        return option;
                     }
                 );
 
@@ -1776,7 +2280,7 @@ export const fetchEvents = async (
 
 export const fetchTrackedEntityInstances = async (
     api: Partial<{ engine: any; axios: AxiosInstance }>,
-    programMapping: Partial<IProgramMapping>,
+    programMapping: Partial<IMapping>,
     additionalParams: { [key: string]: string } = {},
     uniqueAttributeValues: Array<{ attribute: string; value: string }> = [],
     withAttributes: boolean = false,
@@ -1789,10 +2293,14 @@ export const fetchTrackedEntityInstances = async (
         page: number
     ) => Promise<any> = undefined
 ) => {
+    console.log("Are we here");
     let foundInstances: TrackedEntityInstance[] = [];
-    if (withAttributes) {
+    if (withAttributes && uniqueAttributeValues.length > 0) {
         let page = 1;
-        for (const attributeValues of chunk(50, uniqueAttributeValues)) {
+        for (const attributeValues of chunk(
+            50,
+            uniqueAttributeValues.filter(({ value }) => !!value)
+        )) {
             let params = new URLSearchParams(additionalParams);
             Object.entries(groupBy("attribute", attributeValues)).forEach(
                 ([attribute, values]) => {
@@ -1805,7 +2313,7 @@ export const fetchTrackedEntityInstances = async (
                 }
             );
             params.append("fields", "*");
-            params.append("program", programMapping.program || "");
+            params.append("program", programMapping.program.program || "");
             params.append("ouMode", "ALL");
             if (api.engine) {
                 const {
@@ -1849,14 +2357,14 @@ export const fetchTrackedEntityInstances = async (
             }
             page = page + 1;
         }
-    } else {
+    } else if (!withAttributes) {
         let page = 1;
         let instances = 0;
         do {
             const params = new URLSearchParams({
                 ouMode: "ALL",
                 fields: "*",
-                program: programMapping.program || "",
+                program: programMapping.program.program || "",
                 page: String(page),
                 pageSize: "50",
             });
@@ -1899,6 +2407,8 @@ export const fetchTrackedEntityInstances = async (
             console.log("Processing to queried page");
             page = page + 1;
         } while (instances > 0);
+    } else if (callback) {
+        await callback([], [], 1);
     }
     return { trackedEntityInstances: foundInstances };
 };
@@ -1944,4 +2454,197 @@ export const fetchTrackedEntityInstancesByIds = async (
         }
     }
     return instances;
+};
+
+export const fetchGoDataData = async (
+    goData: Partial<IGoData>,
+    authentication: Partial<Authentication>
+) => {
+    const {
+        params,
+        basicAuth,
+        hasNextLink,
+        headers,
+        password,
+        username,
+        ...rest
+    } = authentication;
+
+    const response = await postRemote<GODataTokenGenerationResponse>(
+        rest,
+        "api/users/login",
+        {
+            email: username,
+            password,
+        }
+    );
+
+    const prev = await fetchRemote<Array<Partial<IGoDataData>>>(
+        rest,
+        `api/outbreaks/${goData.id}/cases`,
+        {
+            auth: {
+                param: "access_token",
+                value: response.id,
+                forUpdates: false,
+            },
+        }
+    );
+
+    const allPrev = fromPairs(prev.map(({ visualId, id }) => [id, visualId]));
+
+    const prevQuestionnaire = prev.map(
+        ({ id, visualId, questionnaireAnswers }) => ({
+            ...questionnaireAnswers,
+            id,
+            visualId,
+        })
+    );
+
+    const prevEpidemiology = prev.map(
+        ({
+            id,
+            visualId,
+            classification,
+            dateOfOnset,
+            isDateOfOnsetApproximate,
+            dateBecomeCase,
+            dateOfInfection,
+            outcomeId,
+            dateOfOutcome,
+            transferRefused,
+            dateRanges,
+            dateOfBurial,
+            burialPlaceName,
+            burialLocationId,
+            safeBurial,
+        }) => ({
+            classification,
+            visualId,
+            id,
+            dateOfOnset: dateOfOnset ? dateOfOnset.slice(0, 10) : undefined,
+            isDateOfOnsetApproximate,
+            dateBecomeCase: dateBecomeCase
+                ? dateBecomeCase.slice(0, 10)
+                : undefined,
+            dateOfInfection: dateOfInfection
+                ? dateOfInfection.slice(0, 10)
+                : undefined,
+            outcomeId,
+            dateOfOutcome: dateOfOutcome
+                ? dateOfOutcome.slice(0, 10)
+                : undefined,
+            transferRefused,
+            dateRanges,
+            dateOfBurial: dateOfBurial ? dateOfBurial.slice(0, 10) : undefined,
+            burialPlaceName,
+            burialLocationId,
+            safeBurial,
+        })
+    );
+
+    const prevPeople = prev.map(
+        ({
+            id,
+            visualId,
+            firstName,
+            middleName,
+            lastName,
+            age,
+            dob,
+            gender,
+            pregnancyStatus,
+            occupation,
+            riskLevel,
+            riskReason,
+            dateOfReporting,
+            isDateOfReportingApproximate,
+            responsibleUserId,
+            followUpTeamId,
+            followUp,
+            vaccinesReceived,
+            documents,
+            addresses,
+        }) => ({
+            id,
+            visualId,
+            firstName,
+            middleName,
+            lastName,
+            age,
+            dob: dob ? dob.slice(0, 10) : undefined,
+            gender,
+            pregnancyStatus,
+            occupation,
+            riskLevel,
+            riskReason,
+            dateOfReporting: dateOfReporting
+                ? dateOfReporting.slice(0, 10)
+                : undefined,
+            isDateOfReportingApproximate,
+            responsibleUserId,
+            followUpTeamId,
+            followUp,
+            vaccinesReceived,
+            documents,
+            addresses,
+        })
+    );
+
+    const prevEvents = await fetchRemote<Array<Partial<GoDataEvent>>>(
+        rest,
+        `api/outbreaks/${goData.id}/events`,
+        {
+            auth: {
+                param: "access_token",
+                value: response.id,
+                forUpdates: false,
+            },
+        }
+    );
+
+    const labResponse = await Promise.all(
+        prev.map(({ id }) =>
+            fetchRemote<Array<any>>(
+                rest,
+                `api/outbreaks/${goData.id}/cases/${id}/lab-results`,
+                {
+                    auth: {
+                        param: "access_token",
+                        value: response.id,
+                        forUpdates: false,
+                    },
+                }
+            )
+        )
+    );
+
+    const prevLab = labResponse.flat().map(({ personId, ...rest }) => ({
+        ...rest,
+        personId,
+        visualId: allPrev[personId],
+        dateSampleTaken: rest.dateSampleTaken
+            ? rest.dateSampleTaken.slice(0, 10)
+            : undefined,
+        dateSampleDelivered: rest.dateSampleDelivered
+            ? rest.dateSampleDelivered.slice(0, 10)
+            : undefined,
+        dateTesting: rest.dateTesting
+            ? rest.dateTesting.slice(0, 10)
+            : undefined,
+        dateOfResult: rest.dateOfResult
+            ? rest.dateOfResult.slice(0, 10)
+            : undefined,
+    }));
+    return {
+        metadata: {
+            person: prevPeople,
+            lab: prevLab,
+            events: prevEvents,
+            questionnaire: prevQuestionnaire,
+            relationships: [],
+            epidemiology: prevEpidemiology,
+        },
+        prev: allPrev,
+    };
 };

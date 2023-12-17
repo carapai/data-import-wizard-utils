@@ -1,26 +1,96 @@
 import axios, { AxiosInstance } from "axios";
-import { fromPairs, get, groupBy, isArray, isString, max } from "lodash/fp";
-import {
-    Authentication,
-    GODataOption,
-    GODataTokenGenerationResponse,
-    IGoData,
-    IGoDataOrgUnit,
-    IProgramMapping,
-    Mapping,
-    Option,
-    Param,
-    StageMapping,
-    Update,
-} from "./interfaces";
+import { diff } from "jiff";
 import {
     Dictionary,
     difference,
     intersection,
+    isEmpty,
     isEqual,
     isObject,
     transform,
 } from "lodash";
+import {
+    fromPairs,
+    get,
+    getOr,
+    groupBy,
+    isArray,
+    isString,
+    max,
+    set,
+} from "lodash/fp";
+import {
+    AggDataValue,
+    Authentication,
+    DataValue,
+    FlattenedInstance,
+    GODataOption,
+    GODataTokenGenerationResponse,
+    GoDataEvent,
+    GoDataOuTree,
+    GoResponse,
+    IAggregateMapping,
+    IGoData,
+    IGoDataData,
+    IGoDataOrgUnit,
+    IMapping,
+    IProgramMapping,
+    Mapping,
+    Option,
+    Param,
+    Period,
+    Update,
+    ValueType,
+} from "./interfaces";
+import { convertToGoData } from "./program";
+
+export function modifyGoDataOu(
+    node: GoDataOuTree,
+    parent: { id: string; name: string }
+) {
+    if (!node.children || node.children.length === 0) {
+        const { location } = node;
+        return { title: location.name, value: location.id };
+    }
+    const modifiedChildren = node.children.map((chidNode) =>
+        modifyGoDataOu(chidNode, node.location)
+    );
+    const { location } = node;
+    return {
+        children: modifiedChildren,
+        value: location.id,
+        title: location.name,
+    };
+}
+
+export function getLeavesWithParentInfo(
+    node: GoDataOuTree,
+    parentInfo: Array<{ id: string; name: string }> = []
+): Array<{
+    id: string;
+    name: string;
+    parentInfo: Array<{ id: string; name: string }>;
+}> {
+    if (!node.children || node.children.length === 0) {
+        return [{ id: node.location.id, name: node.location.name, parentInfo }];
+    }
+    const childLeaves = node.children.flatMap((child) =>
+        getLeavesWithParentInfo(child, [
+            ...parentInfo,
+            { name: node.location.name, id: node.location.id },
+        ])
+    );
+
+    return childLeaves;
+}
+
+export const makeFlipped = (dataMapping: Mapping) => {
+    return fromPairs(
+        Object.entries(dataMapping).map(([option, { value }]) => {
+            return [value, option];
+        })
+    );
+};
 
 export const makeRemoteApi = (
     authentication: Partial<Authentication> | undefined
@@ -201,16 +271,16 @@ export const getToken = async <V>(
 };
 
 export const pullRemoteData = async (
-    programMapping: Partial<IProgramMapping>,
+    mapping: Partial<IMapping>,
     goData: Partial<IGoData>,
     tokens: Dictionary<string>,
     token: string,
     remoteAPI: AxiosInstance
 ) => {
-    if (programMapping.dataSource === "godata" && goData.id) {
+    if (mapping.dataSource === "go-data" && goData.id) {
         const data = await fetchRemote<any[]>(
             {
-                ...programMapping.authentication,
+                ...mapping.authentication,
                 params: {
                     auth: { param: "access_token", value: token },
                 },
@@ -283,9 +353,9 @@ export function findDifference(
         if (isArray(destinationValue) && isArray(sourceValue)) {
             const firstDest = destinationValue[0];
             const firstSource = sourceValue[0];
-            console.log(key, firstDest, firstSource);
+            // console.log(key, firstDest, firstSource);
 
-            console.log(findDifference(firstDest, firstSource, attributes));
+            // console.log(findDifference(firstDest, firstSource, attributes));
         } else if (isObject(destinationValue) && isObject(sourceValue)) {
         } else if (
             JSON.stringify(destinationValue) !== JSON.stringify(sourceValue)
@@ -297,9 +367,7 @@ export function findDifference(
     return current;
 }
 
-export const getGoDataToken = async (
-    programMapping: Partial<IProgramMapping>
-) => {
+export const getGoDataToken = async (mapping: Partial<IMapping>) => {
     const {
         params,
         basicAuth,
@@ -308,7 +376,7 @@ export const getGoDataToken = async (
         password,
         username,
         ...rest
-    } = programMapping.authentication || {};
+    } = mapping.authentication || {};
 
     const response = await postRemote<GODataTokenGenerationResponse>(
         rest,
@@ -324,9 +392,19 @@ export const getGoDataToken = async (
     }
 };
 
+export const fetchGoDataHierarchy = async (
+    authentication: Partial<Authentication>
+) => {
+    const hierarchy = await fetchRemote<GoDataOuTree[]>(
+        authentication,
+        "api/locations/hierarchical"
+    );
+    return hierarchy.map((ou) => getLeavesWithParentInfo(ou));
+};
+
 export const loadPreviousGoData = async (
     token: string,
-    programMapping: Partial<IProgramMapping>,
+    mapping: Partial<IMapping>,
     outbreak?: Partial<IGoData>
 ) => {
     const {
@@ -337,9 +415,9 @@ export const loadPreviousGoData = async (
         password,
         username,
         ...rest
-    } = programMapping.authentication || {};
+    } = mapping.authentication || {};
 
-    if (!outbreak) {
+    if (!outbreak && mapping.program.remoteProgram) {
         outbreak = await fetchRemote<Partial<IGoData>>(
             {
                 ...rest,
@@ -350,7 +428,7 @@ export const loadPreviousGoData = async (
                     },
                 },
             },
-            `api/outbreaks/${programMapping.remoteProgram}`
+            `api/outbreaks/${mapping.program.remoteProgram}`
         );
     }
 
@@ -394,11 +472,818 @@ export const loadPreviousGoData = async (
         return { label: actualTokens[id] || id, value: id };
     });
 
+    const hierarchy = await fetchGoDataHierarchy({
+        ...rest,
+        params: { auth: { param: "access_token", value: token } },
+    });
+
     return {
         tokens: actualTokens,
         organisations,
         outbreak,
         options: realGoDataOptions,
         goDataOptions,
+        hierarchy: hierarchy,
     };
+};
+
+export const findChanges = ({
+    source,
+    destination,
+}: {
+    source: { [key: string]: any };
+    destination: { [key: string]: any };
+}) => {
+    let changes: { [key: string]: any } = {};
+    Object.entries(source).forEach(([key, value]) => {
+        const destinationValue = destination[key];
+        if (!destinationValue && value) {
+            changes = { ...changes, [key]: value };
+        } else if (
+            isObject(destinationValue) &&
+            isObject(value) &&
+            !isArray(destinationValue) &&
+            !isArray(value)
+        ) {
+            const currentChanges = findChanges({
+                source: value,
+                destination: destinationValue,
+            });
+            if (!isEmpty(currentChanges)) {
+                changes = { ...changes, [key]: value };
+            }
+        } else if (isArray(destinationValue) && isArray(value)) {
+            const search = value.flatMap((v) => {
+                const keys = Object.keys(v);
+                const sourceValue = keys.map((k) => v[k]).join("");
+                const destValue = destinationValue.find(
+                    (d: any) => keys.map((k) => d[k]).join("") === sourceValue
+                );
+                if (!destValue) {
+                    return v;
+                }
+                return [];
+            });
+
+            if (search.length > 0) {
+                changes = { ...changes, [key]: value };
+            }
+        } else if (
+            destinationValue &&
+            value &&
+            String(destinationValue) !== String(value)
+        ) {
+            changes = { ...changes, [key]: value };
+        }
+    });
+
+    return changes;
+};
+
+export const evaluateMapping = (
+    attributeMapping: Mapping,
+    fields: Option[],
+    instanceData: any,
+    flippedOptions: Dictionary<string>,
+    flippedUnits: Dictionary<string>,
+    uniqAttributes: string[],
+    uniqColumns: string[]
+) => {
+    let errors: any[] = [];
+    let conflicts: any[] = [];
+    const uniqValues = uniqColumns
+        .map((value) => getOr("", value, instanceData))
+        .join("");
+    let results: { [key: string]: any } = {};
+    fields.forEach(
+        ({ value: val, optionSetValue, availableOptions, valueType }) => {
+            const mapping = attributeMapping[val];
+            if (mapping) {
+                const validation = ValueType[mapping.valueType];
+                let value = getOr("", mapping.value, instanceData);
+                if (mapping.specific) {
+                    value = mapping.value;
+                } else if (value && valueType === "INTEGER") {
+                    value = parseInt(value, 10);
+                } else if (valueType === "DATE" && value) {
+                    value = value.slice(0, 10);
+                }
+                let result: any = { success: true };
+                if (optionSetValue) {
+                    value = flippedOptions[value] || value;
+                    if (
+                        availableOptions.findIndex(
+                            (v: Option) =>
+                                v.code === value ||
+                                v.id === value ||
+                                v.value === value
+                        ) !== -1
+                    ) {
+                        result = { ...result, success: true };
+                    } else {
+                        if (mapping.mandatory) {
+                            errors = [
+                                ...errors,
+                                {
+                                    id: Date.now() + Math.random(),
+                                    value,
+                                    attribute: val,
+                                    valueType,
+                                    message: `Expected values (${availableOptions
+                                        .map(({ value }) => value)
+                                        .join(",")})`,
+                                },
+                            ];
+                        } else if (value) {
+                            conflicts = [
+                                ...conflicts,
+                                {
+                                    id: Date.now() + Math.random(),
+                                    value,
+                                    attribute: val,
+                                    valueType: valueType,
+                                    message: `Expected values (${availableOptions
+                                        .map(({ value }) => value)
+                                        .join(",")})`,
+                                },
+                            ];
+                        }
+                        result = { ...result, success: false };
+                    }
+                } else if (validation) {
+                    try {
+                        result = validation.parse(value);
+                        result = { ...result, success: true };
+                    } catch (error) {
+                        const { issues } = error;
+                        result = {
+                            ...issues[0],
+                            success: false,
+                        };
+                        if (mapping.mandatory) {
+                            errors = [
+                                ...errors,
+                                ...issues.map((i: any) => ({
+                                    ...i,
+                                    value,
+                                    attribute: val,
+                                    valueType: mapping.valueType,
+                                    [uniqAttributes.join("")]: uniqValues,
+                                    id: Date.now() + Math.random(),
+                                })),
+                            ];
+                        } else if (value) {
+                            conflicts = [
+                                ...conflicts,
+                                ...issues.map((i: any) => ({
+                                    ...i,
+                                    value,
+                                    attribute: val,
+                                    valueType: mapping.valueType,
+                                    [uniqAttributes.join("")]: uniqValues,
+                                    id: Date.now() + Math.random(),
+                                })),
+                            ];
+                        }
+                    }
+                }
+                if (value && result.success) {
+                    if (mapping.isOrgUnit && flippedUnits[value]) {
+                        results = set(val, flippedUnits[value], results);
+                    } else {
+                        results = set(val, value, results);
+                    }
+                }
+            }
+        }
+    );
+
+    if (isEmpty(results)) {
+        return { results, errors, conflicts };
+    }
+
+    return {
+        results: { ...results, [uniqAttributes.join("")]: uniqValues },
+        errors,
+        conflicts,
+    };
+};
+
+export const findUpdates = (
+    previousData: any[],
+    currentData: any,
+    attribute: string
+) => {
+    let result: { update: any[]; insert: any[] } = {
+        insert: [],
+        update: [],
+    };
+    const prev = previousData.find((i: any) => {
+        return i[attribute] === currentData[attribute];
+    });
+    if (prev && !isEmpty(currentData)) {
+        const difference = diff(prev, currentData);
+        const filteredDifferences = difference.filter(
+            ({ op, path }) =>
+                ["add", "replace", "copy"].indexOf(op) !== -1 &&
+                path !== `/${attribute}` &&
+                path !== `/addresses/0`
+        );
+        if (filteredDifferences.length > 0) {
+            return {
+                update: [
+                    {
+                        ...prev,
+                        ...currentData,
+                    },
+                ],
+                insert: [],
+            };
+        }
+    } else if (!isEmpty(currentData)) {
+        return {
+            update: [],
+            insert: [currentData],
+        };
+    }
+
+    return result;
+};
+
+export const groupGoData4Insert = async (
+    goData: Partial<IGoData>,
+    inserts: GoResponse,
+    updates: GoResponse,
+    prev: Dictionary<string>,
+    authentication: Partial<Authentication>,
+    setMessage: React.Dispatch<React.SetStateAction<string>>,
+    setInserted: React.Dispatch<React.SetStateAction<any[]>>,
+    setUpdates: React.Dispatch<React.SetStateAction<any[]>>,
+    setErrors: React.Dispatch<React.SetStateAction<any[]>>
+) => {
+    const {
+        params,
+        basicAuth,
+        hasNextLink,
+        headers,
+        password,
+        username,
+        ...rest
+    } = authentication;
+    setMessage(() => "Getting auth token");
+    let response: GODataTokenGenerationResponse | undefined = undefined;
+    try {
+        response = await postRemote<GODataTokenGenerationResponse>(
+            rest,
+            "api/users/login",
+            {
+                email: username,
+                password,
+            }
+        );
+    } catch (error) {}
+    if (response) {
+        const token = response.id;
+        for (const p of inserts.person) {
+            const epidemiology = inserts.epidemiology.find(
+                (x) => x.visualId === p.visualId
+            );
+            let questionnaireAnswers = inserts.questionnaire.find(
+                (x) => x.visualId === p.visualId
+            );
+
+            if (questionnaireAnswers) {
+                const { visualId, ...rest } = questionnaireAnswers;
+                questionnaireAnswers = fromPairs(
+                    Object.entries(rest).map(([key, value]) => [
+                        key,
+                        [{ value }],
+                    ])
+                );
+            } else {
+                questionnaireAnswers = {};
+            }
+
+            if (epidemiology) {
+                setMessage(() => `Creating person with id ${p.visualId}`);
+                try {
+                    const response = await postRemote<any>(
+                        {
+                            ...rest,
+                        },
+                        `api/outbreaks/${goData.id}/cases`,
+                        {
+                            ...p,
+                            ...epidemiology,
+                            questionnaireAnswers: questionnaireAnswers,
+                        },
+                        {
+                            auth: {
+                                param: "access_token",
+                                value: token,
+                            },
+                        }
+                    );
+                    setInserted((prev) => [...prev, response]);
+                    const { id } = response;
+                    prev = { ...prev, [p.visualId]: id };
+                } catch (error) {
+                    if (error?.response?.data?.error) {
+                        setErrors((prev) => [
+                            ...prev,
+                            { ...error?.response?.data?.error, id: p.visualId },
+                        ]);
+                    }
+                }
+            }
+        }
+
+        for (const p of updates.person) {
+            const epidemiology1 = inserts.epidemiology.find(
+                (x) => x.visualId === p.visualId
+            );
+            const epidemiology2 = updates.epidemiology.find(
+                (x) => x.visualId === p.visualId
+            );
+
+            const q1 = inserts.questionnaire.find(
+                (x) => x.visualId === p.visualId
+            );
+            const q2 = updates.questionnaire.find(
+                (x) => x.visualId === p.visualId
+            );
+            let epidemiology = {};
+            let questionnaireAnswers = {};
+
+            if (epidemiology1) {
+                epidemiology = epidemiology1;
+            } else if (epidemiology2) {
+                epidemiology = epidemiology2;
+            }
+            if (q1) {
+                const { visualId: v1, ...rest } = q1;
+                questionnaireAnswers = fromPairs(
+                    Object.entries(rest).map(([key, value]) => [
+                        key,
+                        [{ value }],
+                    ])
+                );
+            } else if (q2) {
+                const { visualId: v1, ...rest } = q2;
+                questionnaireAnswers = fromPairs(
+                    Object.entries(rest).map(([key, value]) => [
+                        key,
+                        [{ value }],
+                    ])
+                );
+            }
+            setMessage(() => `Updating person with id ${p.visualId}`);
+            try {
+                const response3 = await putRemote<any>(
+                    {
+                        ...rest,
+                    },
+                    `api/outbreaks/${goData.id}/cases/${p.id}`,
+                    { ...p, ...epidemiology, questionnaireAnswers },
+                    {
+                        auth: {
+                            param: "access_token",
+                            value: token,
+                        },
+                    }
+                );
+                setUpdates((prev) => [...prev, response3]);
+            } catch (error) {
+                if (error?.response?.data?.error) {
+                    setErrors((prev) => [
+                        ...prev,
+                        { ...error?.response?.data?.error, id: p.visualId },
+                    ]);
+                }
+            }
+        }
+
+        for (const l of inserts.lab) {
+            const id = prev[l.visualId];
+            if (id) {
+                setMessage(
+                    () => `Creating lab result for peron with id ${l.visualId}`
+                );
+                try {
+                    const response2 = await postRemote(
+                        { ...rest },
+                        `api/outbreaks/${goData.id}/cases/${id}/lab-results`,
+                        l,
+                        {
+                            auth: {
+                                param: "access_token",
+                                value: token,
+                            },
+                        }
+                    );
+                    setInserted((prev) => [...prev, response2]);
+                } catch (error) {
+                    if (error?.response?.data?.error) {
+                        setErrors((prev) => [
+                            ...prev,
+                            { ...error?.response?.data?.error, id: l.visualId },
+                        ]);
+                    }
+                }
+            }
+        }
+
+        if (inserts.questionnaire.length > 0 && inserts.person.length === 0) {
+            for (const q of inserts.questionnaire) {
+                const id = prev[q.visualId];
+                const { visualId, ...others } = q;
+                const actual = Object.entries(others).map(([key, value]) => [
+                    key,
+                    [{ value }],
+                ]);
+                if (id) {
+                    setMessage(
+                        () =>
+                            `Updating questionnaire  for person with id ${q.visualId}`
+                    );
+                    try {
+                        const response2 = await putRemote(
+                            { ...rest },
+                            `api/outbreaks/${goData.id}/cases/${id}`,
+                            { questionnaireAnswers: fromPairs(actual) },
+                            {
+                                auth: {
+                                    param: "access_token",
+                                    value: token,
+                                },
+                            }
+                        );
+                        setUpdates((prev) => [...prev, response2]);
+                    } catch (error) {
+                        if (error?.response?.data?.error) {
+                            setErrors((prev) => [
+                                ...prev,
+                                {
+                                    ...error?.response?.data?.error,
+                                    id: q.visualId,
+                                },
+                            ]);
+                        }
+                    }
+                }
+            }
+        }
+
+        if (updates.questionnaire.length > 0 && updates.person.length === 0) {
+            for (const q of updates.questionnaire) {
+                const id = prev[q.visualId];
+                const { visualId, ...others } = q;
+                const actual = Object.entries(others).map(([key, value]) => [
+                    key,
+                    [{ value }],
+                ]);
+                if (id) {
+                    setMessage(
+                        () =>
+                            `Updating questionnaire  for person with id ${q.visualId}`
+                    );
+                    try {
+                        const response2 = await putRemote(
+                            { ...rest },
+                            `api/outbreaks/${goData.id}/cases/${id}`,
+                            { questionnaireAnswers: fromPairs(actual) },
+                            {
+                                auth: {
+                                    param: "access_token",
+                                    value: token,
+                                },
+                            }
+                        );
+                        setUpdates((prev) => [...prev, response2]);
+                    } catch (error) {
+                        if (error?.response?.data?.error) {
+                            setErrors((prev) => [
+                                ...prev,
+                                {
+                                    ...error?.response?.data?.error,
+                                    id: q.visualId,
+                                },
+                            ]);
+                        }
+                    }
+                }
+            }
+        }
+
+        for (const l of updates.lab) {
+            const id = prev[l.visualId];
+            if (id) {
+                setMessage(
+                    () => `Updating lab result for peron with id ${l.id}`
+                );
+                try {
+                    const response2 = await putRemote(
+                        { ...rest },
+                        `api/outbreaks/${goData.id}/cases/${id}/lab-results/${l.id}`,
+                        l,
+                        {
+                            auth: {
+                                param: "access_token",
+                                value: token,
+                            },
+                        }
+                    );
+                    setUpdates((prev) => [...prev, response2]);
+                } catch (error) {
+                    if (error?.response?.data?.error) {
+                        setErrors((prev) => [
+                            ...prev,
+                            { ...error?.response?.data?.error, id: l.visualId },
+                        ]);
+                    }
+                }
+            }
+        }
+    }
+};
+
+export const processLineList = ({
+    data,
+    mapping,
+    attributionMapping,
+    ouMapping,
+}: {
+    data: any[];
+    mapping: Partial<IMapping>;
+    attributionMapping: Mapping;
+    ouMapping: Mapping;
+}): Array<AggDataValue> => {
+    const {
+        orgUnitColumn,
+        aggregate: {
+            dataElementColumn,
+            periodColumn,
+            categoryOptionComboColumn,
+            attributeOptionComboColumn,
+            valueColumn,
+        },
+    } = mapping;
+
+    return data.map((a) => ({
+        dataElement: a[dataElementColumn],
+        period: a[periodColumn],
+        orgUnit: a[orgUnitColumn],
+        categoryOptionCombo: a[categoryOptionComboColumn],
+        attributeOptionCombo: a[attributeOptionComboColumn],
+        value: a[valueColumn],
+    }));
+};
+
+export const processElements = ({
+    mapping,
+    dataMapping,
+    data,
+    ouMapping,
+    attributionMapping,
+}: {
+    data: any[];
+    mapping: Partial<IMapping>;
+    dataMapping: Mapping;
+    ouMapping: Mapping;
+    attributionMapping: Mapping;
+}): Array<AggDataValue> => {
+    const {
+        orgUnitColumn,
+        aggregate: {
+            periodColumn,
+            attributeOptionComboColumn,
+            attributionMerged,
+            hasAttribution,
+        },
+    } = mapping;
+    const processed = data.flatMap((d) => {
+        return Object.entries(dataMapping).map(([key, { value }]) => {
+            const [dataElement, categoryOptionCombo] = key.split(",");
+
+            let result: AggDataValue = {
+                dataElement,
+                categoryOptionCombo,
+                value: d[value],
+                orgUnit: d[orgUnitColumn],
+                period: d[periodColumn],
+            };
+            if (hasAttribution) {
+                if (attributionMerged) {
+                    result = {
+                        ...result,
+                        attributeOptionCombo: d[attributeOptionComboColumn],
+                    };
+                }
+            }
+            return result;
+        });
+    });
+    return processed;
+};
+
+export const processOther = () => {};
+
+export const relativePeriods: { [key: string]: Option[] } = {
+    DAILY: [
+        { value: "TODAY", label: "Today" },
+        { value: "YESTERDAY", label: "Yesterday" },
+        { value: "LAST_3_DAYS", label: "Last 3 days" },
+        { value: "LAST_7_DAYS", label: "Last 7 days" },
+        { value: "LAST_14_DAYS", label: "Last 14 days" },
+        { value: "LAST_30_DAYS", label: "Last 30 days" },
+        { value: "LAST_60_DAYS", label: "Last 60 days" },
+        { value: "LAST_90_DAYS", label: "Last 90 days" },
+        { value: "LAST_180_DAYS", label: "Last 180 days" },
+    ],
+    WEEKLY: [
+        { value: "THIS_WEEK", label: "This week" },
+        { value: "LAST_WEEK", label: "Last week" },
+        { value: "LAST_4_WEEKS", label: "Last 4 weeks" },
+        { value: "LAST_12_WEEKS", label: "Last 12 weeks" },
+        { value: "LAST_52_WEEKS", label: "Last 52 weeks" },
+        { value: "WEEKS_THIS_YEAR", label: "Weeks this year" },
+    ],
+    BIWEEKLY: [
+        { value: "THIS_BIWEEK", label: "This bi-week" },
+        { value: "LAST_BIWEEK", label: "Last bi-week" },
+        { value: "LAST_4_BIWEEKS", label: "Last 4 bi-weeks" },
+    ],
+    MONTHLY: [
+        { value: "THIS_MONTH", label: "This month" },
+        { value: "LAST_MONTH", label: "Last month" },
+        { value: "LAST_3_MONTHS", label: "Last 3 months" },
+        { value: "LAST_6_MONTHS", label: "Last 6 months" },
+        { value: "LAST_12_MONTHS", label: "Last 12 months" },
+        {
+            value: "MONTHS_THIS_YEAR",
+            label: "Months this year",
+        },
+    ],
+    BIMONTHLY: [
+        { value: "THIS_BIMONTH", label: "This bi-month" },
+        { value: "LAST_BIMONTH", label: "Last bi-month" },
+        {
+            value: "LAST_6_BIMONTHS",
+            label: "Last 6 bi-months",
+        },
+        {
+            value: "BIMONTHS_THIS_YEAR",
+            label: "Bi-months this year",
+        },
+    ],
+    QUARTERLY: [
+        { value: "THIS_QUARTER", label: "This quarter" },
+        { value: "LAST_QUARTER", label: "Last quarter" },
+        { value: "LAST_4_QUARTERS", label: "Last 4 quarters" },
+        {
+            value: "QUARTERS_THIS_YEAR",
+            label: "Quarters this year",
+        },
+    ],
+    SIXMONTHLY: [
+        { value: "THIS_SIX_MONTH", label: "This six-month" },
+        { value: "LAST_SIX_MONTH", label: "Last six-month" },
+        {
+            value: "LAST_2_SIXMONTHS",
+            label: "Last 2 six-month",
+        },
+    ],
+    FINANCIAL: [
+        {
+            value: "THIS_FINANCIAL_YEAR",
+            label: "This financial year",
+        },
+        {
+            value: "LAST_FINANCIAL_YEAR",
+            label: "Last financial year",
+        },
+        {
+            value: "LAST_5_FINANCIAL_YEARS",
+            label: "Last 5 financial years",
+        },
+    ],
+    YEARLY: [
+        { value: "THIS_YEAR", label: "This year" },
+        { value: "LAST_YEAR", label: "Last year" },
+        { value: "LAST_5_YEARS", label: "Last 5 years" },
+        { value: "LAST_10_YEARS", label: "Last 10 years" },
+    ],
+};
+export const fixedPeriods = [
+    "DAILY",
+    "WEEKLY",
+    "WEEKLYWED",
+    "WEEKLYTHU",
+    "WEEKLYSAT",
+    "WEEKLYSUN",
+    "BIWEEKLY",
+    "MONTHLY",
+    "BIMONTHLY",
+    "QUARTERLY",
+    "QUARTERLYNOV",
+    "SIXMONTHLY",
+    "SIXMONTHLYAPR",
+    "SIXMONTHLYNOV",
+    "YEARLY",
+    "FYNOV",
+    "FYOCT",
+    "FYJUL",
+    "FYAPR",
+];
+
+export const createOptions2 = (
+    array: Array<string>,
+    array2: Array<string>
+): Array<Option> => {
+    return array.map((value, index) => {
+        return { label: value, value: array2[index] };
+    });
+};
+
+export type PickerProps = {
+    selectedPeriods: Period[];
+    onChange: (periods: Period[], remove: boolean) => void;
+};
+
+export const processDataSet = ({
+    data,
+    mapping,
+    dataMapping,
+    ouMapping,
+    attributionMapping,
+}: {
+    data: any[];
+    mapping: Partial<IMapping>;
+    dataMapping: Mapping;
+    ouMapping: Mapping;
+    attributionMapping: Mapping;
+}) => {
+    const flippedUnits = makeFlipped(ouMapping);
+    const flippedMapping = makeFlipped(dataMapping);
+    const flippedAttribution = makeFlipped(attributionMapping);
+    return data.flatMap((d) => {
+        const key = `${d["dataElement"]},${d["categoryOptionCombo"]}`;
+        const mapping = flippedMapping[key];
+        const orgUnit = flippedUnits[d["orgUnit"]];
+        const attributeOptionCombo =
+            flippedAttribution[d["attributeOptionCombo"]];
+
+        if (mapping && orgUnit && attributeOptionCombo) {
+            const [dataElement, categoryOptionCombo] = mapping.split(",");
+            return {
+                dataElement,
+                categoryOptionCombo,
+                value: d["value"],
+                orgUnit,
+                attributeOptionCombo,
+                period: d["period"],
+            };
+        }
+
+        return [];
+    });
+};
+
+export const processIndicators = ({
+    mapping,
+    dataMapping,
+    data,
+    ouMapping,
+    attributionMapping,
+}: {
+    data: any[];
+    mapping: Partial<IMapping>;
+    dataMapping: Mapping;
+    ouMapping: Mapping;
+    attributionMapping: Mapping;
+}): Array<AggDataValue> => {
+    const flippedUnits = makeFlipped(ouMapping);
+    const processed = data.flatMap((d) => {
+        return Object.entries(dataMapping).flatMap(([key, { value }]) => {
+            const orgUnit = flippedUnits[d["ou"]];
+            if (d["dx"] === value && orgUnit) {
+                const [dataElement, categoryOptionCombo, attributeOptionCombo] =
+                    key.split(",");
+
+                let result: AggDataValue = {
+                    dataElement,
+                    categoryOptionCombo,
+                    value: d["value"],
+                    orgUnit,
+                    period: d["pe"],
+                };
+                if (attributeOptionCombo) {
+                    result = { ...result, attributeOptionCombo };
+                }
+                return result;
+            }
+            return [];
+        });
+    });
+    return processed;
 };

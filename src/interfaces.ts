@@ -1,16 +1,44 @@
-import type { ZodBoolean, ZodLiteral, ZodNumber, ZodString } from "zod";
+import type { ZodBoolean, ZodLiteral, ZodNumber, ZodString, string } from "zod";
 import z from "zod";
 import { OptionBase } from "chakra-react-select";
 import { Dictionary } from "lodash";
+export type DataSource =
+    | "api"
+    | "json"
+    | "go-data"
+    | "csv-line-list"
+    | "xlsx-line-list"
+    | "xlsx-tabular-data"
+    | "xlsx-form"
+    | "dhis2-data-set"
+    | "dhis2-indicators"
+    | "dhis2-program-indicators"
+    | "dhis2-program"
+    | "manual-dhis2-program-indicators";
+export type ImportType =
+    | "individual"
+    | "aggregate"
+    | "organisation-units"
+    | "users"
+    | "metadata";
 
+export interface Step {
+    label: string;
+    content: JSX.Element;
+    id: number;
+    nextLabel: string;
+}
+
+export interface INamed {
+    id: string;
+    name: string;
+    description?: string;
+}
 export interface DHIS2Options {
     programStage: string[];
     prefetch: boolean;
-}
-export interface IMapping {
-    id: string;
-    name: string;
-    description: string;
+    ous: string[];
+    period: Period[];
 }
 
 export type Update = {
@@ -29,6 +57,8 @@ export type Processed = {
     events: Array<Partial<Event>>;
     trackedEntityUpdates: Array<Partial<TrackedEntityInstance>>;
     eventsUpdates: Array<Partial<Event>>;
+    errors: Array<any>;
+    conflicts: Array<any>;
 };
 export interface CommonIdentifier {
     id: string;
@@ -95,29 +125,20 @@ export interface Authentication {
     };
 }
 
-export interface IProgramMapping extends IMapping {
+export interface IProgramMapping {
     program: string;
     programType: string;
     trackedEntityType: string;
-    orgUnitColumn: string;
-    customOrgUnitColumn: boolean;
     customEnrollmentDateColumn: boolean;
     customIncidentDateColumn: boolean;
-    orgUnitsUploaded: boolean;
     createEnrollments: boolean;
     createEntities: boolean;
     updateEntities: boolean;
     enrollmentDateColumn: string;
     incidentDateColumn: string;
-    isSource: boolean;
-    prefetch: boolean;
-    authentication: Partial<Authentication>;
-    orgUnitApiAuthentication: Partial<Authentication>;
     metadataApiAuthentication: Partial<Authentication>;
     trackedEntityInstanceColumn: string;
     trackedEntityInstanceColumnIsManual: boolean;
-    remoteOrgUnitLabelField: string;
-    remoteOrgUnitValueField: string;
     onlyEnrollOnce: boolean;
     metadataOptions: {
         labelField: string;
@@ -129,18 +150,55 @@ export interface IProgramMapping extends IMapping {
         dhis2: string;
         mapper: string;
     };
-    dhis2Options: Partial<DHIS2Options>;
     withoutRegistration: boolean;
-    dataSource: "xlsx" | "dhis2" | "api" | "csv" | "json" | "godata";
     responseKey: string;
     remoteProgram: string;
-    orgUnitSource: "api" | "manual" | "default";
-    created: string;
-    lastUpdated: string;
     selectIncidentDatesInFuture: boolean;
     selectEnrollmentDatesInFuture: boolean;
+}
+
+export interface IAggregateMapping {
+    dataSet: string;
+    remote: string;
+    dataElementColumn: string;
+    periodColumn: string;
+    attributeOptionComboColumn: string;
+    categoryOptionComboColumn: string;
+    categoryColumns: { [key: string]: string };
+    valueColumn: string;
+    attributionMerged: boolean;
+    hasAttribution: boolean;
+    indicatorGenerationLevel: string;
+}
+
+export interface IMapping {
+    id: string;
+    name: string;
+    description: string;
+    orgUnitColumn: string;
+    isSource: boolean;
+    created: string;
+    useColumnLetters: boolean;
+    lastUpdated: string;
+    orgUnitSource: "api" | "manual" | "default";
+    customOrgUnitColumn: boolean;
+    authentication: Partial<Authentication>;
+    orgUnitApiAuthentication: Partial<Authentication>;
+    remoteOrgUnitLabelField: string;
+    remoteOrgUnitValueField: string;
+    orgUnitsUploaded: boolean;
+    headerRow: number;
+    dataStartRow: number;
+    sheet: string;
+    isCurrentInstance: boolean;
+    prefetch: boolean;
+    type: ImportType;
     destination: string;
     source: string;
+    aggregate: Partial<IAggregateMapping>;
+    program: Partial<IProgramMapping>;
+    dataSource: DataSource;
+    dhis2Options: Partial<DHIS2Options>;
 }
 
 export interface IProgramStage {
@@ -351,7 +409,7 @@ interface ProgramOwner {
 
 export interface Option extends OptionBase {
     label: string;
-    value: string;
+    value?: string;
     id?: string;
     code?: string;
     unique?: boolean;
@@ -362,6 +420,8 @@ export interface Option extends OptionBase {
     entity?: string;
     multiple?: boolean;
     isOrgUnit?: boolean;
+    parent?: string;
+    options?: Option[];
 }
 
 export interface MultiOption extends OptionBase {
@@ -619,6 +679,8 @@ export type FlattenedInstance = Omit<
 
 export interface IGoDataData {
     firstName: string;
+    middleName: string;
+    lastName: string;
     wasContact: boolean;
     outcomeId: string;
     safeBurial: boolean;
@@ -630,7 +692,14 @@ export interface IGoDataData {
     id: string;
     outbreakId: string;
     visualId: string;
-    dob?: any;
+    dob?: string;
+    gender: string;
+    pregnancyStatus: boolean;
+    riskLevel: string;
+    riskReason: string;
+    responsibleUserId: string;
+    followUpTeamId: string;
+    followUp: any;
     age: Age;
     occupation: string;
     documents: any[];
@@ -639,6 +708,12 @@ export interface IGoDataData {
     isDateOfReportingApproximate: boolean;
     dateOfOnset: string;
     dateRanges: any[];
+    isDateOfOnsetApproximate: boolean;
+    dateBecomeCase: string;
+    dateOfInfection: string;
+    dateOfBurial: string;
+    burialPlaceName: string;
+    burialLocationId: string;
     classificationHistory: ClassificationHistory[];
     dateOfOutcome: string;
     hasRelationships: boolean;
@@ -661,14 +736,15 @@ interface ClassificationHistory {
     endDate?: string;
 }
 
-interface Address {
+export interface Address {
     typeId: string;
     locationId: string;
     geoLocationAccurate: boolean;
     date: string;
+    phoneNumber: string;
 }
 
-interface Age {
+export interface Age {
     years: number;
 }
 
@@ -678,4 +754,168 @@ interface QuestionnaireAnswers {
 
 interface GoValue {
     value: string | number | boolean;
+}
+
+export interface GoResponse {
+    person: any[];
+    epidemiology: any[];
+    events: any[];
+    relationships: any[];
+    lab: any[];
+    questionnaire: any[];
+}
+
+export interface GoDataEvent {
+    visualId: string;
+    name: string;
+    endDate: string;
+    description: string;
+    address: Partial<Address>;
+    id: string;
+    date: string;
+    numberOfExposures: number;
+    numberOfContacts: number;
+    createdAt: string;
+    createdBy: string;
+    updatedAt: string;
+    updatedBy: string;
+    deleted: boolean;
+}
+
+interface DataSetElement {
+    dataElement: DataElement;
+}
+
+interface DataElement {
+    code: string;
+    name: string;
+    id: string;
+    categoryCombo: CategoryCombo;
+}
+
+interface CategoryCombo {
+    categories: Category[];
+    categoryOptionCombos: Category[];
+}
+
+interface Category {
+    code: string;
+    name: string;
+    categoryOptions: CategoryOption[];
+    id: string;
+}
+
+interface CategoryOption {
+    code: string;
+    name: string;
+    id: string;
+}
+
+export interface IDataSet {
+    code: string;
+    name: string;
+    dataSetElements: DataSetElement[];
+    id: string;
+    organisationUnits: DHIS2OrgUnit[];
+    categoryCombo: CategoryCombo;
+}
+
+export type AggDataValue = {
+    dataElement: string;
+    period: string;
+    orgUnit: string;
+    categoryOptionCombo: string;
+    attributeOptionCombo?: string;
+    value: string;
+};
+
+export interface AggConflict {
+    object: string;
+    value: string;
+    errorCode: string;
+    property: string;
+}
+
+export type RelativePeriodType =
+    | "DAILY"
+    | "WEEKLY"
+    | "BIWEEKLY"
+    | "WEEKS_THIS_YEAR"
+    | "MONTHLY"
+    | "BIMONTHLY"
+    | "QUARTERLY"
+    | "SIXMONTHLY"
+    | "FINANCIAL"
+    | "YEARLY";
+
+export type FixedPeriodType =
+    | "DAILY"
+    | "WEEKLY"
+    | "WEEKLYWED"
+    | "WEEKLYTHU"
+    | "WEEKLYSAT"
+    | "WEEKLYSUN"
+    | "BIWEEKLY"
+    | "MONTHLY"
+    | "BIMONTHLY"
+    | "QUARTERLY"
+    | "QUARTERLYNOV"
+    | "SIXMONTHLY"
+    | "SIXMONTHLYAPR"
+    | "SIXMONTHLYNOV"
+    | "YEARLY"
+    | "FYNOV"
+    | "FYOCT"
+    | "FYJUL"
+    | "FYAPR";
+
+export type FixedPeriod = {
+    id: string;
+    iso?: string;
+    name: string;
+    startDate: string;
+    endDate: string;
+};
+
+export interface Period extends Option {
+    startDate?: string;
+    endDate?: string;
+    type: "fixed" | "relative" | "range";
+}
+
+export type AggMetadata = {
+    sourceOrgUnits: Array<Option>;
+    destinationOrgUnits: Array<Option>;
+    sourceColumns: Array<Option>;
+    destinationColumns: Array<Option>;
+    destinationCategories: Array<Option>;
+    sourceCategories: Array<Option>;
+    destinationCategoryOptionCombos: Array<Option>;
+    sourceCategoryOptionCombos: Array<Option>;
+};
+export type ProgramMetadata = {
+    sourceOrgUnits: Array<Option>;
+    destinationOrgUnits: Array<Option>;
+    sourceColumns: Array<Option>;
+    destinationColumns: Array<Option>;
+    sourceAttributes: Array<Option>;
+    destinationAttributes: Array<Option>;
+    sourceStages: Array<Option>;
+    destinationStages: Array<Option>;
+    uniqueAttributeValues: Array<{ attribute: string; value: string }>;
+    epidemiology: Array<Option>;
+    case: Array<Option>;
+    questionnaire: Array<Option>;
+    events: Array<Option>;
+    lab: Array<Option>;
+    relationship: Array<Option>;
+    contact: Array<Option>;
+};
+
+export interface GoDataOuTree {
+    children: GoDataOuTree[];
+    location: {
+        id: string;
+        name: string;
+    };
 }
