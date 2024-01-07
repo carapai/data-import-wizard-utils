@@ -393,13 +393,19 @@ export const getGoDataToken = async (mapping: Partial<IMapping>) => {
 };
 
 export const fetchGoDataHierarchy = async (
-    authentication: Partial<Authentication>
+    authentication: Partial<Authentication>,
+    locationIds: string[]
 ) => {
     const hierarchy = await fetchRemote<GoDataOuTree[]>(
         authentication,
         "api/locations/hierarchical"
     );
-    return hierarchy.map((ou) => getLeavesWithParentInfo(ou));
+    return hierarchy.flatMap((ou) => {
+        if (locationIds.indexOf(ou.location.id) !== -1) {
+            return getLeavesWithParentInfo(ou);
+        }
+        return [];
+    });
 };
 
 export const loadPreviousGoData = async (
@@ -472,10 +478,13 @@ export const loadPreviousGoData = async (
         return { label: actualTokens[id] || id, value: id };
     });
 
-    const hierarchy = await fetchGoDataHierarchy({
-        ...rest,
-        params: { auth: { param: "access_token", value: token } },
-    });
+    const hierarchy = await fetchGoDataHierarchy(
+        {
+            ...rest,
+            params: { auth: { param: "access_token", value: token } },
+        },
+        outbreak.locationIds
+    );
 
     return {
         tokens: actualTokens,

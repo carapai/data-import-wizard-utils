@@ -1,5 +1,5 @@
 import { AxiosInstance } from "axios";
-import { format, parseISO } from "date-fns/fp";
+import { format, parseISO, isAfter, isDate, isValid } from "date-fns/fp";
 import { Dictionary, isArray, maxBy, minBy } from "lodash";
 import {
     chunk,
@@ -52,6 +52,7 @@ import {
     postRemote,
 } from "./utils";
 import { diff } from "jiff";
+import { isFuture } from "date-fns";
 
 const stepLabels: { [key: number]: string } = {
     0: "Next Step",
@@ -233,9 +234,7 @@ const processEvents = (
                             ({ op }) =>
                                 ["add", "replace", "copy"].indexOf(op) !== -1
                         );
-                        console.log("are we here");
                         if (filteredDifferences.length > 0) {
-                            console.log("Some differences");
                             return {
                                 event,
                                 eventDate,
@@ -761,7 +760,7 @@ export const convertToDHIS2 = async ({
             Object.entries(attributeMapping).forEach(
                 ([attribute, aMapping]) => {
                     const currentAttribute = attributes[attribute];
-                    if (aMapping.value) {
+                    if (aMapping.value && currentAttribute) {
                         const validation = ValueType[aMapping.valueType];
                         let value = getOr("", aMapping.value, current[0]);
                         if (aMapping.specific) {
@@ -769,10 +768,7 @@ export const convertToDHIS2 = async ({
                         }
                         let result: any = { success: true };
 
-                        if (
-                            currentAttribute &&
-                            currentAttribute.optionSetValue
-                        ) {
+                        if (currentAttribute.optionSetValue) {
                             value = flippedOptions[value] || value;
                             if (
                                 currentAttribute.availableOptions.findIndex(
@@ -869,10 +865,10 @@ export const convertToDHIS2 = async ({
                 source,
             });
 
-            const difference = diff(destination, source);
-            const filteredDifferences = difference.filter(
-                ({ op }) => ["add", "replace", "copy"].indexOf(op) !== -1
-            );
+            // const difference = diff(destination, source);
+            // const filteredDifferences = difference.filter(
+            //     ({ op }) => ["add", "replace", "copy"].indexOf(op) !== -1
+            // );
             if (
                 previousAttributes.length > 0 &&
                 updateEntities &&
@@ -901,11 +897,8 @@ export const convertToDHIS2 = async ({
                 createEntities &&
                 currentErrors.length === 0
             ) {
-                previousOrgUnit = getOr(
-                    "",
-                    getOr("", orgUnitColumn, current[0]),
-                    flippedUnits
-                );
+                const currentUnit = getOr("", orgUnitColumn, current[0]);
+                previousOrgUnit = getOr("", currentUnit, flippedUnits);
                 previousTrackedEntity = generateUid();
                 if (previousOrgUnit) {
                     results = {
@@ -929,37 +922,74 @@ export const convertToDHIS2 = async ({
                     currentErrors = [
                         ...currentErrors,
                         {
-                            value: "Missing",
-                            attribute: "OrgUnit",
+                            value: `Missing equivalent mapping for organisation unit ${currentUnit}`,
+                            attribute: `OrgUnit for ${uniqueKey}`,
                         },
                     ];
                 }
             }
-            if (createEnrollments && isEmpty(previousEnrollment)) {
-                const enrollmentDate = getOr(
-                    "",
-                    enrollmentDateColumn,
-                    current[0]
+            if (
+                previousOrgUnit &&
+                createEnrollments &&
+                isEmpty(previousEnrollment)
+            ) {
+                const enrollmentDate = parseISO(
+                    getOr("", enrollmentDateColumn, current[0])
                 );
-                const incidentDate = getOr("", incidentDateColumn, current[0]);
-                if (previousOrgUnit && enrollmentDate && incidentDate) {
-                    previousEnrollment = generateUid();
-                    const enrollment = {
-                        program: mapping.program.program,
-                        trackedEntityInstance: previousTrackedEntity,
-                        orgUnit: previousOrgUnit,
-                        enrollmentDate: format(
-                            "yyyy-MM-dd",
-                            parseISO(enrollmentDate)
-                        ),
-                        incidentDate: format(
-                            "yyyy-MM-dd",
-                            parseISO(incidentDate)
-                        ),
-                        enrollment: previousEnrollment,
-                    };
+                const incidentDate = parseISO(
+                    getOr("", incidentDateColumn, current[0])
+                );
+                if (isValid(enrollmentDate) && isValid(incidentDate)) {
+                    let dateAreValid = true;
 
-                    results = { ...results, enrollments: [enrollment] };
+                    if (
+                        !selectEnrollmentDatesInFuture &&
+                        isFuture(enrollmentDate)
+                    ) {
+                        dateAreValid = false;
+                        currentErrors = [
+                            ...currentErrors,
+                            {
+                                value: `Date ${format(
+                                    "yyyy-MM-dd",
+                                    enrollmentDate
+                                )} is in the future`,
+                                attribute: `Enrollment date for ${uniqueKey}`,
+                            },
+                        ];
+                    }
+
+                    if (
+                        !selectIncidentDatesInFuture &&
+                        isFuture(incidentDate)
+                    ) {
+                        dateAreValid = false;
+                        currentErrors = [
+                            ...currentErrors,
+                            {
+                                value: `Date ${format(
+                                    "yyyy-MM-dd",
+                                    incidentDate
+                                )} is in the future`,
+                                attribute: `Incident date for ${uniqueKey}`,
+                            },
+                        ];
+                    }
+                    if (dateAreValid) {
+                        previousEnrollment = generateUid();
+                        const enrollment = {
+                            program: mapping.program.program,
+                            trackedEntityInstance: previousTrackedEntity,
+                            orgUnit: previousOrgUnit,
+                            enrollmentDate: format(
+                                "yyyy-MM-dd",
+                                enrollmentDate
+                            ),
+                            incidentDate: format("yyyy-MM-dd", incidentDate),
+                            enrollment: previousEnrollment,
+                        };
+                        results = { ...results, enrollments: [enrollment] };
+                    }
                 } else {
                     currentErrors = [
                         ...currentErrors,
@@ -969,7 +999,6 @@ export const convertToDHIS2 = async ({
                         },
                     ];
                 }
-            } else if (!isEmpty(previousEnrollment)) {
             }
 
             let events = [];
@@ -1141,21 +1170,23 @@ export const processPreviousInstances = (
     };
 };
 
-const flattenEvent = ({
-    dataValues,
-    programStage,
-    enrollment,
-    ...rest
-}: Partial<Event>): Partial<FlattenedEvent> => {
-    return {
-        [programStage]: {
-            ...rest,
-            programStage,
-            values: fromPairs(
-                dataValues.map(({ dataElement, value }) => [dataElement, value])
-            ),
-        },
-    };
+const flattenEvent = (event: Partial<Event>): Partial<FlattenedEvent> => {
+    if (event) {
+        const { dataValues, programStage, enrollment, ...rest } = event;
+        return {
+            [programStage]: {
+                ...rest,
+                programStage,
+                values: fromPairs(
+                    dataValues.map(({ dataElement, value }) => [
+                        dataElement,
+                        value,
+                    ])
+                ),
+            },
+        };
+    }
+    return {};
 };
 
 export const flattenEvents = (
@@ -2293,7 +2324,6 @@ export const fetchTrackedEntityInstances = async (
         page: number
     ) => Promise<any> = undefined
 ) => {
-    console.log("Are we here");
     let foundInstances: TrackedEntityInstance[] = [];
     if (withAttributes && uniqueAttributeValues.length > 0) {
         let page = 1;
