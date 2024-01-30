@@ -1,5 +1,7 @@
 import { AxiosInstance } from "axios";
-import { format, parseISO, isAfter, isDate, isValid } from "date-fns/fp";
+import { isFuture } from "date-fns";
+import { format, isValid, parseISO } from "date-fns/fp";
+import { diff } from "jiff";
 import { Dictionary, isArray, maxBy, minBy } from "lodash";
 import {
     chunk,
@@ -27,6 +29,7 @@ import {
     Event,
     FlattenedEvent,
     FlattenedInstance,
+    GODataOption,
     GODataTokenGenerationResponse,
     GoDataEvent,
     GoResponse,
@@ -34,7 +37,6 @@ import {
     IGoDataData,
     IMapping,
     IProgram,
-    IProgramMapping,
     IProgramStage,
     Mapping,
     Option,
@@ -51,8 +53,6 @@ import {
     findUpdates,
     postRemote,
 } from "./utils";
-import { diff } from "jiff";
-import { isFuture } from "date-fns";
 
 const stepLabels: { [key: number]: string } = {
     0: "Next Step",
@@ -761,7 +761,8 @@ export const convertToDHIS2 = async ({
                 ([attribute, aMapping]) => {
                     const currentAttribute = attributes[attribute];
                     if (aMapping.value && currentAttribute) {
-                        const validation = ValueType[aMapping.valueType];
+                        const validation =
+                            ValueType[currentAttribute.valueType];
                         let value = getOr("", aMapping.value, current[0]);
                         if (aMapping.specific) {
                             value = aMapping.value;
@@ -813,7 +814,7 @@ export const convertToDHIS2 = async ({
                             }
                         } else if (validation) {
                             try {
-                                result = validation.parse(value);
+                                validation.parse(value);
                                 result = { ...result, success: true };
                             } catch (error) {
                                 const { issues } = error;
@@ -843,7 +844,25 @@ export const convertToDHIS2 = async ({
                                 }
                             }
                         }
-                        if (value && result.success) {
+                        if (
+                            value &&
+                            result.success &&
+                            currentAttribute.valueType === "DATE"
+                        ) {
+                            source = {
+                                ...source,
+                                [attribute]: String(value).slice(0, 10),
+                            };
+                        } else if (
+                            value &&
+                            result.success &&
+                            currentAttribute.valueType === "DATETIME"
+                        ) {
+                            source = {
+                                ...source,
+                                [attribute]: String(value).replace("Z", ""),
+                            };
+                        } else if (value && result.success) {
                             source = {
                                 ...source,
                                 [attribute]: value,
@@ -1280,6 +1299,7 @@ const getAttributes = (program: Partial<IProgram>): Array<Option> => {
                     unique,
                     optionSetValue,
                     optionSet,
+                    valueType,
                 },
             }) => {
                 return {
@@ -1289,6 +1309,7 @@ const getAttributes = (program: Partial<IProgram>): Array<Option> => {
                     unique,
                     mandatory,
                     optionSetValue,
+                    valueType: String(valueType),
                     availableOptions:
                         optionSet?.options.map(({ code, id, name }) => ({
                             label: name,
@@ -1405,6 +1426,7 @@ export const makeMetadata = (
         goData,
         tokens,
         remoteOrganisations,
+        referenceData,
     }: Partial<{
         data: any[];
         dhis2Program: Partial<IProgram>;
@@ -1413,6 +1435,7 @@ export const makeMetadata = (
         remoteOrganisations: any[];
         goData: Partial<IGoData>;
         tokens: Dictionary<string>;
+        referenceData: GODataOption[];
     }>
 ) => {
     const destinationOrgUnits = getOrgUnits(program);
@@ -1482,7 +1505,23 @@ export const makeMetadata = (
             ...GO_DATA_EPIDEMIOLOGY_FIELDS,
             ...GO_DATA_EVENTS_FIELDS,
             ...GO_DATA_LAB_FIELDS,
-        ];
+        ].map((a) => {
+            if (a.optionSet) {
+                return {
+                    ...a,
+                    availableOptions: referenceData
+                        .filter((b) => b.categoryId === a.optionSet)
+                        .map((c) => {
+                            const currentLabel = tokens[c.value];
+                            return {
+                                label: currentLabel,
+                                value: c.value,
+                            };
+                        }),
+                };
+            }
+            return a;
+        });
         let investigationTemplate = [];
         if (goData && goData.caseInvestigationTemplate) {
             investigationTemplate = flattenGoData(
@@ -1508,46 +1547,116 @@ export const makeMetadata = (
                 return 1;
             }
             return 0;
+        }).map((a) => {
+            if (a.optionSet) {
+                return {
+                    ...a,
+                    availableOptions: referenceData
+                        .filter((b) => b.categoryId === a.optionSet)
+                        .map((c) => {
+                            const currentLabel = tokens[c.description];
+                            return {
+                                label: currentLabel,
+                                value: c.value,
+                            };
+                        }),
+                };
+            }
+            return a;
         });
         results.case = uniqBy(
             "value",
             GO_DATA_PERSON_FIELDS.filter(
                 ({ entity }) => entity && entity.indexOf("CASE") !== -1
             )
-        ).sort((a, b) => {
-            if (a.mandatory && !b.mandatory) {
-                return -1;
-            } else if (!a.mandatory && b.mandatory) {
-                return 1;
-            }
-            return 0;
-        });
+        )
+            .sort((a, b) => {
+                if (a.mandatory && !b.mandatory) {
+                    return -1;
+                } else if (!a.mandatory && b.mandatory) {
+                    return 1;
+                }
+                return 0;
+            })
+            .map((a) => {
+                if (a.optionSet) {
+                    return {
+                        ...a,
+                        availableOptions: referenceData
+                            .filter((b) => b.categoryId === a.optionSet)
+                            .map((c) => {
+                                const currentLabel = tokens[c.description];
+                                return {
+                                    label: currentLabel,
+                                    value: c.value,
+                                };
+                            }),
+                    };
+                }
+                return a;
+            });
         results.contact = uniqBy(
             "value",
             GO_DATA_PERSON_FIELDS.filter(
                 ({ entity }) => entity && entity.indexOf("CONTACT") !== -1
             )
-        ).sort((a, b) => {
-            if (a.mandatory && !b.mandatory) {
-                return -1;
-            } else if (!a.mandatory && b.mandatory) {
-                return 1;
-            }
-            return 0;
-        });
+        )
+            .sort((a, b) => {
+                if (a.mandatory && !b.mandatory) {
+                    return -1;
+                } else if (!a.mandatory && b.mandatory) {
+                    return 1;
+                }
+                return 0;
+            })
+            .map((a) => {
+                if (a.optionSet) {
+                    return {
+                        ...a,
+                        availableOptions: referenceData
+                            .filter((b) => b.categoryId === a.optionSet)
+                            .map((c) => {
+                                const currentLabel = tokens[c.description];
+                                return {
+                                    label: currentLabel,
+                                    value: c.value,
+                                };
+                            }),
+                    };
+                }
+                return a;
+            });
         results.events = uniqBy("value", [
             ...attributes.filter(
                 ({ entity }) => entity && entity.indexOf("EVENT") !== -1
             ),
             ...GO_DATA_EVENTS_FIELDS,
-        ]).sort((a, b) => {
-            if (a.mandatory && !b.mandatory) {
-                return -1;
-            } else if (!a.mandatory && b.mandatory) {
-                return 1;
-            }
-            return 0;
-        });
+        ])
+            .sort((a, b) => {
+                if (a.mandatory && !b.mandatory) {
+                    return -1;
+                } else if (!a.mandatory && b.mandatory) {
+                    return 1;
+                }
+                return 0;
+            })
+            .map((a) => {
+                if (a.optionSet) {
+                    return {
+                        ...a,
+                        availableOptions: referenceData
+                            .filter((b) => b.categoryId === a.optionSet)
+                            .map((c) => {
+                                const currentLabel = tokens[c.description];
+                                return {
+                                    label: currentLabel,
+                                    value: c.value,
+                                };
+                            }),
+                    };
+                }
+                return a;
+            });
         results.lab = GO_DATA_LAB_FIELDS.sort((a, b) => {
             if (a.mandatory && !b.mandatory) {
                 return -1;
@@ -1555,6 +1664,22 @@ export const makeMetadata = (
                 return 1;
             }
             return 0;
+        }).map((a) => {
+            if (a.optionSet) {
+                return {
+                    ...a,
+                    availableOptions: referenceData
+                        .filter((b) => b.categoryId === a.optionSet)
+                        .map((c) => {
+                            const currentLabel = tokens[c.description];
+                            return {
+                                label: currentLabel,
+                                value: c.value,
+                            };
+                        }),
+                };
+            }
+            return a;
         });
         results.relationship = GO_DATA_RELATIONSHIP_FIELDS.sort((a, b) => {
             if (a.mandatory && !b.mandatory) {
@@ -1563,6 +1688,22 @@ export const makeMetadata = (
                 return 1;
             }
             return 0;
+        }).map((a) => {
+            if (a.optionSet) {
+                return {
+                    ...a,
+                    availableOptions: referenceData
+                        .filter((b) => b.categoryId === a.optionSet)
+                        .map((c) => {
+                            const currentLabel = tokens[c.description];
+                            return {
+                                label: currentLabel,
+                                value: c.value,
+                            };
+                        }),
+                };
+            }
+            return a;
         });
         results.questionnaire = investigationTemplate;
     } else {

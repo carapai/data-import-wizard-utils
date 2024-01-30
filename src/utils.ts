@@ -438,6 +438,16 @@ export const loadPreviousGoData = async (
         );
     }
 
+    const reference = await fetchRemote<any>(
+        {
+            ...rest,
+            params: {
+                auth: { param: "access_token", value: token },
+            },
+        },
+        "api/filter-mappings"
+    );
+
     const tokens = await fetchRemote<{
         languageId: string;
         lastUpdateDate: string;

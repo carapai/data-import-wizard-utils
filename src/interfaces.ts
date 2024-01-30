@@ -414,6 +414,7 @@ export interface Option extends OptionBase {
     code?: string;
     unique?: boolean;
     optionSetValue?: boolean;
+    optionSet?: string;
     mandatory?: boolean;
     availableOptions?: Option[];
     valueType?: string;
