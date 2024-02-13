@@ -2124,7 +2124,7 @@ export const isDisabled = ({
                 !hasLogins(programMapping),
             "csv-line-list": data.length === 0 || !hasName(programMapping),
             "xlsx-line-list": data.length === 0 || !hasName(programMapping),
-            "dhis2-program": data.length === 0 || !hasName(programMapping),
+            "dhis2-program": !hasName(programMapping),
             json: data.length === 0 || !hasName(programMapping),
             api: data.length === 0 || !hasName(programMapping),
         },
