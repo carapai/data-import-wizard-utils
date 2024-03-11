@@ -10,9 +10,10 @@ import attributeMapping from "./metadata/attributeMapping.json";
 import organisationMapping from "./metadata/ouMapping.json";
 import godata from "./metadata/godata.json";
 import programMapping from "./metadata/programMapping.json";
+import validation from "./metadata/validation.json";
 import categories from "./metadata/reference-data.json";
 import { set } from "lodash/fp";
-import { updateObject } from "./utils";
+import { updateObject, validateValue } from "./utils";
 import { groupBy } from "lodash";
 
 // const organisationMapping: Mapping = {
@@ -71,16 +72,6 @@ test("Change Attribute", () => {
 });
 
 test("Process categories", () => {
-    const processed = Object.entries(groupBy(categories, "Category")).map(
-        ([category, value]) => [
-            category,
-            value.map(({ Label, ID }) => ({
-                value: Label,
-                label: Label,
-                id: ID,
-            })),
-        ]
-    );
-    console.log(JSON.stringify(processed));
+    // const validated = validateValue(validation);
     expect(1).toBe(1);
 });

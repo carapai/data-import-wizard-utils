@@ -1,4 +1,6 @@
 import axios, { AxiosInstance } from "axios";
+import { parseISO } from "date-fns";
+import { format } from "date-fns/fp";
 import { diff } from "jiff";
 import {
     Dictionary,
@@ -22,27 +24,35 @@ import {
 import {
     AggDataValue,
     Authentication,
-    DataValue,
-    FlattenedInstance,
+    DHIS2ProcessedData,
+    DHIS2Response,
     GODataOption,
     GODataTokenGenerationResponse,
-    GoDataEvent,
     GoDataOuTree,
     GoResponse,
-    IAggregateMapping,
     IGoData,
-    IGoDataData,
     IGoDataOrgUnit,
     IMapping,
-    IProgramMapping,
+    IProgram,
     Mapping,
     Option,
     Param,
+    PartialEvent,
     Period,
+    RealMapping,
+    StageMapping,
+    TrackedEntityInstance,
     Update,
     ValueType,
 } from "./interfaces";
-import { convertToGoData } from "./program";
+import { generateUid } from "./uid";
+import {
+    convertToDHIS2,
+    fetchTrackedEntityInstances,
+    findUniqAttributes,
+    flattenTrackedEntityInstances,
+    processPreviousInstances,
+} from "./program";
 
 export function modifyGoDataOu(
     node: GoDataOuTree,
@@ -92,9 +102,7 @@ export const makeFlipped = (dataMapping: Mapping) => {
     );
 };
 
-export const makeRemoteApi = (
-    authentication: Partial<Authentication> | undefined
-) => {
+export const makeRemoteApi = (authentication?: Partial<Authentication>) => {
     let params = new URLSearchParams();
     Object.values(authentication?.params || {}).forEach(({ param, value }) => {
         if (param && value) {
@@ -102,9 +110,11 @@ export const makeRemoteApi = (
         }
     });
     if (
-        authentication?.basicAuth &&
-        authentication?.username &&
-        authentication?.password
+        !isEmpty(authentication) &&
+        authentication.url &&
+        authentication.basicAuth &&
+        authentication.username &&
+        authentication.password
     ) {
         return axios.create({
             baseURL: authentication.url,
@@ -113,12 +123,25 @@ export const makeRemoteApi = (
                 password: authentication.password,
             },
             params,
+            headers: fromPairs(
+                Object.values(authentication?.headers ?? {}).map(
+                    ({ param, value }) => [param, value]
+                )
+            ),
         });
     }
-    return axios.create({
-        baseURL: authentication?.url || "",
-        params,
-    });
+
+    if (!isEmpty(authentication) && authentication.url) {
+        return axios.create({
+            baseURL: authentication.url,
+            params,
+            headers: fromPairs(
+                Object.values(authentication?.headers ?? {}).map(
+                    ({ param, value }) => [param, value]
+                )
+            ),
+        });
+    }
 };
 
 export const createOptions = (options: string[]): Option[] => {
@@ -1305,4 +1328,477 @@ export const processIndicators = ({
         });
     });
     return processed;
+};
+
+export const validateValue = ({
+    option,
+    mapping,
+    data,
+    flippedOptions,
+    field,
+    uniqueKey,
+}: {
+    option: Option;
+    mapping: Partial<RealMapping>;
+    data: any;
+    flippedOptions: Dictionary<string>;
+    field: string;
+    uniqueKey: string;
+}): Partial<{
+    errors: any[];
+    conflicts: any[];
+    success: boolean;
+    value: any;
+}> => {
+    if (mapping.value) {
+        const validation = ValueType[option.valueType];
+        let value = getOr("", mapping.value, data);
+        if (mapping.specific) {
+            value = mapping.value;
+        }
+        if (option.optionSetValue) {
+            value = flippedOptions[value] || value;
+            if (
+                option.availableOptions.findIndex(
+                    (v: Option) =>
+                        v.code === value || v.id === value || v.value === value
+                ) !== -1
+            ) {
+                return { success: true, value };
+            } else {
+                if (mapping.mandatory) {
+                    return {
+                        success: false,
+                        errors: [
+                            {
+                                id: Date.now() + Math.random(),
+                                value,
+                                field,
+                                uniqueKey,
+                                valueType: option.valueType,
+                                message: `Expected values (${option.availableOptions
+                                    .map(({ value }) => value)
+                                    .join(",")})`,
+                            },
+                        ],
+                    };
+                }
+                if (value) {
+                    return {
+                        success: false,
+                        conflicts: [
+                            {
+                                id: Date.now() + Math.random(),
+                                value,
+                                field,
+                                uniqueKey,
+                                valueType: option.valueType,
+                                message: `Expected values (${option.availableOptions
+                                    .map(({ value }) => value)
+                                    .join(",")})`,
+                            },
+                        ],
+                    };
+                }
+            }
+        } else if (validation) {
+            try {
+                validation.parse(value);
+                if (option.valueType === "DATE") {
+                    return {
+                        success: true,
+                        value: String(value).slice(0, 10),
+                    };
+                }
+
+                if (option.valueType === "DATETIME") {
+                    return {
+                        success: true,
+                        value: String(value).replace("Z", ""),
+                    };
+                }
+                return { success: true, value };
+            } catch (error) {
+                const { issues } = error;
+                if (mapping.mandatory) {
+                    return {
+                        success: false,
+                        errors: issues.map((i: any) => ({
+                            ...i,
+                            value,
+                            field,
+                            uniqueKey,
+                            valueType: mapping.valueType,
+                            id: Date.now() + Math.random(),
+                        })),
+                    };
+                }
+                if (value) {
+                    return {
+                        success: false,
+                        conflicts: issues.map((i: any) => ({
+                            ...i,
+                            value,
+                            field,
+                            uniqueKey,
+                            valueType: mapping.valueType,
+                            id: Date.now() + Math.random(),
+                        })),
+                    };
+                }
+            }
+        } else if (value) {
+            return { success: true, value };
+        }
+    }
+    return { success: false, conflicts: [], errors: [] };
+};
+
+export const processAttributes = ({
+    attributeMapping,
+    attributes,
+    flippedOptions,
+    data,
+    uniqueKey,
+}: {
+    attributeMapping: Mapping;
+    attributes: Dictionary<Option>;
+    flippedOptions: Dictionary<string>;
+    data: any;
+    uniqueKey: string;
+}) => {
+    let source: { [key: string]: any } = {};
+    let conflicts: any[] = [];
+    let errors: any[] = [];
+
+    Object.entries(attributeMapping).forEach(([attribute, aMapping]) => {
+        const currentAttribute = attributes[attribute];
+        if (aMapping.value && currentAttribute) {
+            const {
+                success,
+                conflicts: cs,
+                errors: es,
+                value,
+            } = validateValue({
+                data,
+                option: currentAttribute,
+                field: attribute,
+                mapping: aMapping,
+                flippedOptions,
+                uniqueKey,
+            });
+
+            if (success) {
+                source = { ...source, [attribute]: value };
+            } else {
+                conflicts = conflicts.concat(cs);
+                errors = errors.concat(es);
+            }
+        }
+    });
+
+    return { source, conflicts, errors };
+};
+
+export const getGeometry = ({
+    data,
+    featureType,
+    geometryMerged,
+    geometryColumn,
+    latitudeColumn,
+    longitudeColumn,
+}: {
+    featureType: string;
+    geometryMerged: boolean;
+    geometryColumn: string;
+    latitudeColumn: string;
+    longitudeColumn: string;
+    data: any;
+}) => {
+    if (featureType === "POINT" && geometryMerged && geometryColumn) {
+        const point = getOr("", geometryColumn, data);
+
+        if (point && isArray(point)) {
+            return {
+                type: "Point",
+                coordinates: point,
+            };
+        }
+    } else if (
+        featureType === "POINT" &&
+        !geometryMerged &&
+        latitudeColumn &&
+        longitudeColumn
+    ) {
+        const lat = getOr("", latitudeColumn, data);
+        const lon = getOr("", longitudeColumn, data);
+
+        if (lon && lat) {
+            return {
+                type: "Point",
+                coordinates: [lat, lon],
+            };
+        }
+    } else if (featureType === "POLYGON" && geometryColumn) {
+    }
+    return {};
+};
+
+export const makeEvent = ({
+    eventDateColumn,
+    data,
+    featureType,
+    geometryColumn,
+    geometryMerged,
+    latitudeColumn,
+    longitudeColumn,
+    eventIdColumn,
+    elements,
+    programStage,
+    enrollment,
+    trackedEntityInstance,
+    program,
+    orgUnit,
+    options,
+    dataElements,
+    uniqueKey,
+}: {
+    eventDateColumn: string;
+    data: any;
+    featureType: string;
+    geometryColumn: string;
+    geometryMerged: boolean;
+    latitudeColumn: string;
+    longitudeColumn: string;
+    eventIdColumn: string;
+    elements: {
+        [key: string]: Partial<RealMapping>;
+    };
+    programStage: string;
+    enrollment: string;
+    trackedEntityInstance: string;
+    program: string;
+    orgUnit: string;
+    options: Dictionary<string>;
+    dataElements: Dictionary<Option>;
+    uniqueKey: string;
+}): Partial<{
+    errors: any[];
+    conflicts: any[];
+    event: PartialEvent;
+}> => {
+    const possibleEventDate = getOr("", eventDateColumn, data);
+    let dataValues = {};
+    let conflicts: any[] = [];
+    let errors: any[] = [];
+
+    if (possibleEventDate) {
+        try {
+            const actualDate = parseISO(possibleEventDate);
+            const eventDate = format("yyyy-MM-dd", actualDate);
+            if (eventDate) {
+                let eventGeometry = getGeometry({
+                    data,
+                    featureType,
+                    geometryColumn,
+                    geometryMerged,
+                    latitudeColumn,
+                    longitudeColumn,
+                });
+                const eventId = getOr(generateUid(), eventIdColumn, data);
+
+                Object.entries(elements).forEach(([dataElement, eMapping]) => {
+                    const currentDataElement = dataElements[dataElement];
+                    const validation = validateValue({
+                        data,
+                        option: currentDataElement,
+                        field: dataElement,
+                        mapping: eMapping,
+                        flippedOptions: options,
+                        uniqueKey,
+                    });
+                    if (validation.value) {
+                        dataValues = {
+                            ...dataValues,
+                            [dataElement]: validation.value,
+                        };
+                    } else {
+                        conflicts = conflicts.concat(validation.conflicts);
+                        errors = errors.concat(validation.errors);
+                    }
+                });
+
+                let event: PartialEvent = {
+                    eventDate,
+                    programStage,
+                    enrollment,
+                    trackedEntityInstance,
+                    program,
+                    orgUnit,
+                    event: eventId,
+                    dataValues,
+                };
+
+                if (!isEmpty(eventGeometry)) {
+                    event = { ...event, geometry: eventGeometry };
+                }
+                return { event, errors, conflicts };
+            }
+            return {
+                errors: [
+                    {
+                        id: Date.now() + Math.random(),
+                        uniqueKey,
+                        value: "",
+                        field: "eventDate",
+                        valueType: "DATE",
+                        message: `Event Date is missing or invalid`,
+                    },
+                ],
+                conflicts: [],
+            };
+        } catch (error) {
+            return {
+                errors: [
+                    {
+                        id: Date.now() + Math.random(),
+                        value: possibleEventDate,
+                        field: "eventDate",
+                        valueType: "DATE",
+                        message: `Event Date is invalid`,
+                        uniqueKey,
+                    },
+                ],
+                conflicts: [],
+            };
+        }
+    }
+    return {
+        errors: [
+            {
+                id: Date.now() + Math.random(),
+                value: possibleEventDate,
+                field: "eventDate",
+                valueType: "DATE",
+                message: `Event Date is missing`,
+                uniqueKey,
+            },
+        ],
+        conflicts: [],
+    };
+};
+
+export const getConflicts = (error: DHIS2Response) => {
+    const {
+        imported = 0,
+        updated = 0,
+        deleted = 0,
+        ignored = 0,
+        importSummaries = [],
+        total = 0,
+    } = error?.response ?? {};
+    const conflicts = importSummaries.flatMap(({ conflicts }) => conflicts);
+    const failed = importSummaries.flatMap(
+        ({ conflicts, reference, status }) => {
+            if (conflicts.length === 0 || status === "ERROR") {
+                return reference;
+            }
+            return [];
+        }
+    );
+    return {
+        conflicts,
+        imported,
+        updated,
+        deleted,
+        total,
+        ignored,
+        failed,
+    };
+};
+
+export const processInstances = async (
+    {
+        trackedEntityInstances,
+        programMapping,
+        attributeMapping,
+        api,
+        version,
+        program,
+        optionMapping,
+        organisationUnitMapping,
+        programStageMapping,
+        programStageUniqueElements,
+        programUniqAttributes,
+        setMessage,
+    }: {
+        attributeMapping: Mapping;
+        programMapping: Partial<IMapping>;
+        trackedEntityInstances: Array<Partial<TrackedEntityInstance>>;
+        api: Partial<{ engine: any; axios: AxiosInstance }>;
+        version: number;
+        program: Partial<IProgram>;
+        optionMapping: Record<string, string>;
+        organisationUnitMapping: Mapping;
+        programStageMapping: StageMapping;
+        programStageUniqueElements: Dictionary<string[]>;
+        programUniqAttributes: string[];
+        setMessage: (message: string) => void;
+    },
+    callback: (processedData: DHIS2ProcessedData) => Promise<void>
+) => {
+    const currentData = flattenTrackedEntityInstances(
+        {
+            trackedEntityInstances,
+        },
+        "ALL"
+    );
+    let uniqueAttributeValues: any[] = [];
+    let trackedInstanceIds: string[] = [];
+    if (programMapping.program?.trackedEntityInstanceColumn) {
+        trackedInstanceIds = trackedEntityInstances
+            .map(({ trackedEntityInstance }) => trackedEntityInstance ?? "")
+            .filter((a) => a !== "");
+    } else {
+        uniqueAttributeValues = findUniqAttributes(
+            currentData,
+            attributeMapping
+        );
+    }
+
+    if (currentData.length > 0) {
+        setMessage(`Fetching data from destination program`);
+        const instances = await fetchTrackedEntityInstances({
+            api,
+            program: programMapping.program?.program,
+            additionalParams: {},
+            uniqueAttributeValues,
+            withAttributes: true,
+            trackedEntityInstances: trackedInstanceIds,
+            fields: "*",
+            pageSize: "50",
+        });
+
+        const previous = processPreviousInstances({
+            trackedEntityInstances: instances.trackedEntityInstances,
+            programUniqAttributes,
+            programStageUniqueElements,
+            currentProgram: programMapping.program?.program,
+            eventIdIdentifiesEvent: trackedInstanceIds.length > 0,
+            trackedEntityIdIdentifiesInstance: trackedInstanceIds.length > 0,
+        });
+
+        const convertedData = await convertToDHIS2({
+            previousData: previous,
+            data: currentData,
+            mapping: programMapping,
+            organisationUnitMapping,
+            attributeMapping,
+            programStageMapping,
+            optionMapping,
+            version,
+            program,
+        });
+        callback(convertedData);
+    }
 };

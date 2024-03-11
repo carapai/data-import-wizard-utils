@@ -1,4 +1,11 @@
-import type { ZodBoolean, ZodLiteral, ZodNumber, ZodString, string } from "zod";
+import type {
+    ZodBoolean,
+    ZodEffects,
+    ZodLiteral,
+    ZodNumber,
+    ZodString,
+    string,
+} from "zod";
 import z from "zod";
 import { OptionBase } from "chakra-react-select";
 import { Dictionary } from "lodash";
@@ -27,6 +34,7 @@ export interface Step {
     content: JSX.Element;
     id: number;
     nextLabel: string;
+    lastLabel: string;
 }
 
 export interface INamed {
@@ -52,10 +60,10 @@ export type StageMapping = {
 };
 
 export type Processed = {
-    trackedEntities: Array<Partial<TrackedEntityInstance>>;
+    trackedEntityInstances: Array<Partial<TrackedEntityInstance>>;
     enrollments: Array<Partial<Enrollment>>;
     events: Array<Partial<Event>>;
-    trackedEntityUpdates: Array<Partial<TrackedEntityInstance>>;
+    trackedEntityInstancesUpdates: Array<Partial<TrackedEntityInstance>>;
     eventsUpdates: Array<Partial<Event>>;
     errors: Array<any>;
     conflicts: Array<any>;
@@ -65,13 +73,21 @@ export interface CommonIdentifier {
     name: string;
     code: string;
 }
+export interface TrackedEntityType extends CommonIdentifier {
+    featureType: string;
+}
 
 export interface DHIS2OrgUnit extends CommonIdentifier {
     parent: Partial<DHIS2OrgUnit>;
 }
 
 export const ValueType: {
-    [key: string]: ZodString | ZodBoolean | ZodNumber | ZodLiteral<true>;
+    [key: string]:
+        | ZodString
+        | ZodBoolean
+        | ZodNumber
+        | ZodLiteral<true>
+        | ZodEffects<ZodNumber, number, unknown>;
 } = {
     TEXT: z.string(),
     LONG_TEXT: z.string(),
@@ -87,13 +103,13 @@ export const ValueType: {
             /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2}(?:\.\d*)?)((-(\d{2}):(\d{2})|Z)?)$/
         ),
     TIME: z.string().regex(/^(\d{2}):(\d{2})/),
-    NUMBER: z.number(),
+    NUMBER: z.preprocess(Number, z.number()),
     UNIT_INTERVAL: z.string(),
-    PERCENTAGE: z.number().int().gte(0).lte(100),
-    INTEGER: z.number().int(),
-    INTEGER_POSITIVE: z.number().int().positive().min(1),
-    INTEGER_NEGATIVE: z.number().int().negative(),
-    INTEGER_ZERO_OR_POSITIVE: z.number().int().min(0),
+    PERCENTAGE: z.preprocess(Number, z.number().int().gte(0).lte(100)),
+    INTEGER: z.preprocess(Number, z.number().int()),
+    INTEGER_POSITIVE: z.preprocess(Number, z.number().int().positive().min(1)),
+    INTEGER_NEGATIVE: z.preprocess(Number, z.number().int().negative()),
+    INTEGER_ZERO_OR_POSITIVE: z.preprocess(Number, z.number().int().min(0)),
     TRACKER_ASSOCIATE: z.string().length(11),
     USERNAME: z.string(),
     COORDINATE: z.string(),
@@ -155,6 +171,14 @@ export interface IProgramMapping {
     remoteProgram: string;
     selectIncidentDatesInFuture: boolean;
     selectEnrollmentDatesInFuture: boolean;
+    longitudeColumn: string;
+    latitudeColumn: string;
+    geometryColumn: string;
+    geometryMerged: boolean;
+    enrollmentLongitudeColumn: string;
+    enrollmentLatitudeColumn: string;
+    enrollmentGeometryColumn: string;
+    enrollmentGeometryMerged: boolean;
 }
 
 export interface IAggregateMapping {
@@ -208,19 +232,7 @@ export interface IProgramStage {
     repeatable: boolean;
     programStageDataElements: IProgramStageDataElement[];
     dataElementsFilter: string;
-    page: number;
-    rowsPerPage: number;
-    orderBy: "compulsory";
-    order: "asc" | "desc";
-    eventDateIdentifiesEvent: false;
-    completeEvents: false;
-    longitudeColumn: string;
-    latitudeColumn: string;
-    createNewEvents: false;
-    updateEvents: boolean;
-    eventDateColumn: string;
-    eventsByDate: {};
-    eventsByDataElement: {};
+    featureType: string;
 }
 
 export interface IProgramStageDataElement {
@@ -278,7 +290,7 @@ export interface IProgram {
     onlyEnrollOnce: boolean;
     selectEnrollmentDatesInFuture: boolean;
     selectIncidentDatesInFuture: boolean;
-    trackedEntityType: CommonIdentifier;
+    trackedEntityType: TrackedEntityType;
     categoryCombo: CommonIdentifier;
     featureType: string;
     displayEnrollmentDateLabel: string;
@@ -301,6 +313,7 @@ export interface RealMapping {
     mandatory: boolean;
     value: string;
     eventDateColumn: string;
+    dueDateColumn: string;
     unique: boolean;
     createEvents: boolean;
     updateEvents: boolean;
@@ -311,6 +324,11 @@ export interface RealMapping {
     specific: boolean;
     valueType: string;
     isOrgUnit: boolean;
+    completeEvents: boolean;
+    longitudeColumn: string;
+    latitudeColumn: string;
+    geometryColumn: string;
+    geometryMerged: boolean;
 }
 
 export interface Mapping {
@@ -340,6 +358,7 @@ export interface Event {
     notes: any[];
     relationships: any[];
     storedBy: string;
+    geometry: any;
 }
 
 export interface Attribute {
@@ -374,6 +393,7 @@ export interface Enrollment {
     attributes: Array<Partial<Attribute>>;
     storedBy: string;
     lastUpdatedAtClient: string;
+    geometry: any;
 }
 export interface TrackedEntityInstance {
     created: string;
@@ -391,6 +411,7 @@ export interface TrackedEntityInstance {
     relationships: any[];
     attributes: Array<Partial<Attribute>>;
     lastUpdatedAtClient: string;
+    geometry: any;
 }
 
 export interface DataValue {
@@ -401,7 +422,7 @@ export interface DataValue {
     providedElsewhere: boolean;
 }
 
-interface ProgramOwner {
+export interface ProgramOwner {
     ownerOrgUnit: string;
     program: string;
     trackedEntityInstance: string;
@@ -423,6 +444,7 @@ export interface Option extends OptionBase {
     isOrgUnit?: boolean;
     parent?: string;
     options?: Option[];
+    allowFutureDate?: boolean;
 }
 
 export interface MultiOption extends OptionBase {
@@ -672,9 +694,6 @@ export type FlattenedInstance = Omit<
     "attributes" | "events" | "enrollments"
 > & {
     attribute: Dictionary<string>;
-    first: FlattenedEvent;
-    last: FlattenedEvent;
-    events: Array<FlattenedEvent>;
     enrollment: Partial<FlattenedEnrollment>;
 };
 
@@ -903,7 +922,7 @@ export type ProgramMetadata = {
     destinationAttributes: Array<Option>;
     sourceStages: Array<Option>;
     destinationStages: Array<Option>;
-    uniqueAttributeValues: Array<{ attribute: string; value: string }>;
+    uniqueAttributeValues: Array<Dictionary<any>>;
     epidemiology: Array<Option>;
     case: Array<Option>;
     questionnaire: Array<Option>;
@@ -911,6 +930,7 @@ export type ProgramMetadata = {
     lab: Array<Option>;
     relationship: Array<Option>;
     contact: Array<Option>;
+    trackedEntityInstanceIds: any[];
 };
 
 export interface GoDataOuTree {
@@ -920,3 +940,99 @@ export interface GoDataOuTree {
         name: string;
     };
 }
+
+export type DHIS2ProcessedData = {
+    enrollments: Array<Partial<Enrollment>>;
+    trackedEntityInstances: Array<Partial<TrackedEntityInstance>>;
+    events: Array<Partial<Event>>;
+    eventUpdates: Array<Partial<Event>>;
+    trackedEntityInstanceUpdates: Array<Partial<TrackedEntityInstance>>;
+    conflicts: any[];
+    errors: any[];
+};
+
+export interface DHIS2Response {
+    httpStatus: string;
+    httpStatusCode: number;
+    status: string;
+    message: string;
+    response: Response;
+}
+
+export interface Response {
+    responseType: string;
+    status: string;
+    imported: number;
+    updated: number;
+    deleted: number;
+    ignored: number;
+    importOptions: ImportOptions;
+    importSummaries: ImportSummary[];
+    total: number;
+}
+
+export interface ImportSummary {
+    responseType: string;
+    status: string;
+    importCount: ImportCount;
+    conflicts: Conflict[];
+    rejectedIndexes: any[];
+    reference: string;
+}
+
+export interface Conflict {
+    object: string;
+    value: string;
+}
+
+interface ImportCount {
+    imported: number;
+    updated: number;
+    ignored: number;
+    deleted: number;
+}
+
+interface ImportOptions {
+    idSchemes: IdSchemes;
+    dryRun: boolean;
+    async: boolean;
+    importStrategy: string;
+    mergeMode: string;
+    reportMode: string;
+    skipExistingCheck: boolean;
+    sharing: boolean;
+    skipNotifications: boolean;
+    skipAudit: boolean;
+    datasetAllowsPeriods: boolean;
+    strictPeriods: boolean;
+    strictDataElements: boolean;
+    strictCategoryOptionCombos: boolean;
+    strictAttributeOptionCombos: boolean;
+    strictOrganisationUnits: boolean;
+    strictDataSetApproval: boolean;
+    strictDataSetLocking: boolean;
+    strictDataSetInputPeriods: boolean;
+    requireCategoryOptionCombo: boolean;
+    requireAttributeOptionCombo: boolean;
+    skipPatternValidation: boolean;
+    ignoreEmptyCollection: boolean;
+    force: boolean;
+    firstRowIsHeader: boolean;
+    skipLastUpdated: boolean;
+    mergeDataValues: boolean;
+    skipCache: boolean;
+}
+
+interface IdSchemes {}
+
+export type PartialEvent = Partial<{
+    eventDate: string;
+    programStage: string;
+    enrollment: string;
+    trackedEntityInstance: string;
+    program: string;
+    orgUnit: string;
+    event: string;
+    dataValues: Dictionary<string>;
+    geometry: any;
+}>;

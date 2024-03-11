@@ -1,0 +1,279 @@
+{
+    "data": {
+        "created": "2024-02-19T08:45:17.800",
+        "orgUnit": "Jkcb6n1DPwP",
+        "createdAtClient": "2024-02-19T08:45:17.800",
+        "trackedEntityInstance": "cQcoJYlc4Fx",
+        "lastUpdated": "2024-02-19T08:46:07.685",
+        "trackedEntityType": "gbPIj5JTytc",
+        "lastUpdatedAtClient": "2024-02-19T08:45:17.800",
+        "potentialDuplicate": false,
+        "deleted": false,
+        "inactive": false,
+        "featureType": "NONE",
+        "lastUpdatedByUserInfo": {
+            "uid": "M5zQapPyTZI",
+            "firstName": "admin",
+            "surname": "admin",
+            "username": "admin"
+        },
+        "createdByUserInfo": {
+            "uid": "M5zQapPyTZI",
+            "firstName": "admin",
+            "surname": "admin",
+            "username": "admin"
+        },
+        "programOwners": [
+            {
+                "ownerOrgUnit": "Jkcb6n1DPwP",
+                "program": "wWaLmJhj1Q2",
+                "trackedEntityInstance": "cQcoJYlc4Fx"
+            }
+        ],
+        "relationships": [],
+        "attribute": {
+            "MGfju8svfnU": "Mr.",
+            "JeQyZna97cq": "Albert Mutesasira Test Import",
+            "ptyaf5ROqWa": "Male",
+            "srHJcJdlBCy": "Foreigner",
+            "ZpDlB7MEBGn": "0",
+            "DHB4I74dXTP": "Teaching staff",
+            "CTlcN7vKFgx": "1996-01-01",
+            "s1briSuTHNN": "Foreigner",
+            "thNOHl8CPFs": "Passport",
+            "VUEMD9A8Oqg": "HNU878H"
+        },
+        "enrollment": {
+            "storedBy": "admin",
+            "createdAtClient": "2024-02-19T08:45:20.136",
+            "program": "wWaLmJhj1Q2",
+            "lastUpdated": "2024-02-19T08:45:20.136",
+            "created": "2024-02-19T08:45:20.033",
+            "orgUnit": "Jkcb6n1DPwP",
+            "enrollment": "EvEW6OaXlUt",
+            "trackedEntityInstance": "cQcoJYlc4Fx",
+            "trackedEntityType": "gbPIj5JTytc",
+            "lastUpdatedAtClient": "2024-02-19T08:45:20.136",
+            "orgUnitName": "Dlangeni Community Pre-School (10093)",
+            "enrollmentDate": "2024-02-19T00:00:00.000",
+            "deleted": false,
+            "incidentDate": "2024-02-19T00:00:00.000",
+            "status": "ACTIVE",
+            "lastUpdatedByUserInfo": {
+                "uid": "M5zQapPyTZI",
+                "firstName": "admin",
+                "surname": "admin",
+                "username": "admin"
+            },
+            "createdByUserInfo": {
+                "uid": "M5zQapPyTZI",
+                "firstName": "admin",
+                "surname": "admin",
+                "username": "admin"
+            },
+            "notes": [],
+            "relationships": [],
+            "attributes": [
+                {
+                    "lastUpdated": "2024-02-19T08:45:17.890",
+                    "storedBy": "admin",
+                    "displayName": "Title",
+                    "created": "2024-02-19T08:45:17.890",
+                    "valueType": "TEXT",
+                    "attribute": "MGfju8svfnU",
+                    "value": "Mr."
+                },
+                {
+                    "lastUpdated": "2024-02-19T08:45:17.826",
+                    "code": "FULLNAME",
+                    "storedBy": "admin",
+                    "displayName": "Full name",
+                    "created": "2024-02-19T08:45:17.826",
+                    "valueType": "TEXT",
+                    "attribute": "JeQyZna97cq",
+                    "value": "Albert Mutesasira Test Import"
+                },
+                {
+                    "lastUpdated": "2024-02-19T08:45:17.907",
+                    "code": "SEX",
+                    "storedBy": "admin",
+                    "displayName": "Sex",
+                    "created": "2024-02-19T08:45:17.907",
+                    "valueType": "TEXT",
+                    "attribute": "ptyaf5ROqWa",
+                    "value": "Male"
+                },
+                {
+                    "lastUpdated": "2024-02-19T08:45:17.912",
+                    "storedBy": "admin",
+                    "displayName": "Nationality",
+                    "created": "2024-02-19T08:45:17.912",
+                    "valueType": "TEXT",
+                    "attribute": "srHJcJdlBCy",
+                    "value": "Foreigner"
+                },
+                {
+                    "lastUpdated": "2024-02-19T08:45:17.905",
+                    "storedBy": "admin",
+                    "displayName": "Has PIN?",
+                    "created": "2024-02-19T08:45:17.905",
+                    "valueType": "TEXT",
+                    "attribute": "ZpDlB7MEBGn",
+                    "value": "0"
+                },
+                {
+                    "lastUpdated": "2024-02-19T08:45:17.824",
+                    "storedBy": "admin",
+                    "displayName": "Type of Staff",
+                    "created": "2024-02-19T08:45:17.824",
+                    "valueType": "TEXT",
+                    "attribute": "DHB4I74dXTP",
+                    "value": "Teaching staff"
+                },
+                {
+                    "lastUpdated": "2024-02-19T08:45:17.821",
+                    "storedBy": "admin",
+                    "displayName": "Date of birth",
+                    "created": "2024-02-19T08:45:17.820",
+                    "valueType": "DATE",
+                    "attribute": "CTlcN7vKFgx",
+                    "value": "1996-01-01"
+                },
+                {
+                    "lastUpdated": "2024-02-19T08:45:17.910",
+                    "storedBy": "admin",
+                    "displayName": "Reasons for not having a PIN",
+                    "created": "2024-02-19T08:45:17.910",
+                    "valueType": "TEXT",
+                    "attribute": "s1briSuTHNN",
+                    "value": "Foreigner"
+                },
+                {
+                    "lastUpdated": "2024-02-19T08:45:17.915",
+                    "storedBy": "admin",
+                    "displayName": "Staff alternative ID",
+                    "created": "2024-02-19T08:45:17.915",
+                    "valueType": "TEXT",
+                    "attribute": "thNOHl8CPFs",
+                    "value": "Passport"
+                },
+                {
+                    "lastUpdated": "2024-02-19T08:45:17.903",
+                    "storedBy": "admin",
+                    "displayName": "Alternative ID No.",
+                    "created": "2024-02-19T08:45:17.903",
+                    "valueType": "TEXT",
+                    "attribute": "VUEMD9A8Oqg",
+                    "value": "HNU878H"
+                }
+            ]
+        },
+        "first": {
+            "JIbDpD1Pfh2": {
+                "storedBy": "admin",
+                "dueDate": "2024-02-19T08:45:27.513",
+                "program": "wWaLmJhj1Q2",
+                "event": "R79T7DrDe9l",
+                "orgUnit": "Jkcb6n1DPwP",
+                "trackedEntityInstance": "cQcoJYlc4Fx",
+                "enrollmentStatus": "ACTIVE",
+                "status": "COMPLETED",
+                "eventDate": "2024-02-19T00:00:00.000",
+                "orgUnitName": "Dlangeni Community Pre-School (10093)",
+                "attributeCategoryOptions": "xYerKDKCefk",
+                "lastUpdated": "2024-02-19T08:46:07.679",
+                "created": "2024-02-19T08:45:27.517",
+                "completedDate": "2024-02-19T00:00:00.000",
+                "deleted": false,
+                "attributeOptionCombo": "HllvX50cXC0",
+                "lastUpdatedByUserInfo": {
+                    "uid": "M5zQapPyTZI",
+                    "firstName": "admin",
+                    "surname": "admin",
+                    "username": "admin"
+                },
+                "createdByUserInfo": {
+                    "uid": "M5zQapPyTZI",
+                    "firstName": "admin",
+                    "surname": "admin",
+                    "username": "admin"
+                },
+                "notes": [],
+                "relationships": [],
+                "programStage": "JIbDpD1Pfh2",
+                "values": {
+                    "SHNfNn2QjlR": "Additional Mathematics",
+                    "mfsP1VdOOuB": "Agriculture and Technology",
+                    "e3cK8kwval8": "Permanent",
+                    "vnp4OXHu0ew": "Married",
+                    "gxm8xg4VCAz": "Yes",
+                    "yX89lSazcUU": "B.P.H.D in special education",
+                    "LgxV5F4wExu": "Primary",
+                    "DLCaCppaHJy": "Yes",
+                    "PBbDbL2a2ka": "6-10 years",
+                    "Wrd3tqPCmZI": "Yes",
+                    "egPOCQiPPIn": "Yes",
+                    "TNDxhfWgB5P": "EXT005",
+                    "Qikc9jLhujJ": "TSC/Public Service",
+                    "XheFsbBDml8": "A3",
+                    "taZ6rtWYVmZ": "Yes"
+                }
+            }
+        },
+        "last": {
+            "JIbDpD1Pfh2": {
+                "storedBy": "admin",
+                "dueDate": "2024-02-19T08:45:27.513",
+                "program": "wWaLmJhj1Q2",
+                "event": "R79T7DrDe9l",
+                "orgUnit": "Jkcb6n1DPwP",
+                "trackedEntityInstance": "cQcoJYlc4Fx",
+                "enrollmentStatus": "ACTIVE",
+                "status": "COMPLETED",
+                "eventDate": "2024-02-19T00:00:00.000",
+                "orgUnitName": "Dlangeni Community Pre-School (10093)",
+                "attributeCategoryOptions": "xYerKDKCefk",
+                "lastUpdated": "2024-02-19T08:46:07.679",
+                "created": "2024-02-19T08:45:27.517",
+                "completedDate": "2024-02-19T00:00:00.000",
+                "deleted": false,
+                "attributeOptionCombo": "HllvX50cXC0",
+                "lastUpdatedByUserInfo": {
+                    "uid": "M5zQapPyTZI",
+                    "firstName": "admin",
+                    "surname": "admin",
+                    "username": "admin"
+                },
+                "createdByUserInfo": {
+                    "uid": "M5zQapPyTZI",
+                    "firstName": "admin",
+                    "surname": "admin",
+                    "username": "admin"
+                },
+                "notes": [],
+                "relationships": [],
+                "programStage": "JIbDpD1Pfh2",
+                "values": {
+                    "SHNfNn2QjlR": "Additional Mathematics",
+                    "mfsP1VdOOuB": "Agriculture and Technology",
+                    "e3cK8kwval8": "Permanent",
+                    "vnp4OXHu0ew": "Married",
+                    "gxm8xg4VCAz": "Yes",
+                    "yX89lSazcUU": "B.P.H.D in special education",
+                    "LgxV5F4wExu": "Primary",
+                    "DLCaCppaHJy": "Yes",
+                    "PBbDbL2a2ka": "6-10 years",
+                    "Wrd3tqPCmZI": "Yes",
+                    "egPOCQiPPIn": "Yes",
+                    "TNDxhfWgB5P": "EXT005",
+                    "Qikc9jLhujJ": "TSC/Public Service",
+                    "XheFsbBDml8": "A3",
+                    "taZ6rtWYVmZ": "Yes"
+                }
+            }
+        }
+    },
+    "field": "SE3EDZFlGDU",
+    "mapping": { "value": "attribute.DHB4I74dXTP" },
+    "flippedOptions": {}
+}

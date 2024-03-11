@@ -23,6 +23,7 @@
         "dayjs": "^1.11.9",
         "jiff": "^0.7.3",
         "lodash": "^4.17.21",
+        "p-limit": "^5.0.0",
         "zod": "^3.21.4"
     },
     "publishConfig": {
