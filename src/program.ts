@@ -51,7 +51,7 @@ import {
     Mapping,
     Option,
     Processed,
-    ProgramMetadata,
+    Metadata,
     StageMapping,
     TrackedEntityInstance,
     ValueType,
@@ -79,6 +79,30 @@ const stepLabels: { [key: number]: string } = {
     6: "Next Step",
     7: "Import",
     8: "Finish",
+};
+
+export const findUniqAttributes = (
+    data: any[],
+    attributeMapping: Mapping
+): Array<Dictionary<any>> => {
+    return data.flatMap((d) => {
+        const values = Object.entries(attributeMapping).flatMap(
+            ([attribute, mapping]) => {
+                const { unique, value } = mapping;
+                const foundValue = getOr("", value, d);
+                if (unique && value && foundValue) {
+                    return { attribute, value: foundValue };
+                }
+                return [];
+            }
+        );
+        if (values.length > 0) {
+            return fromPairs<any>(
+                values.map(({ attribute, value }) => [attribute, value])
+            );
+        }
+        return [];
+    });
 };
 
 const processEvents = (
@@ -111,7 +135,7 @@ const processEvents = (
             dueDateColumn,
             updateEvents,
             eventIdColumn,
-            eventDateIsUnique,
+            uniqueEventDate,
             geometryColumn = "",
             geometryMerged = false,
             latitudeColumn = "",
@@ -128,7 +152,7 @@ const processEvents = (
                     return [];
                 }
             );
-            if (eventDateIsUnique) {
+            if (uniqueEventDate) {
                 uniqueColumns = [...uniqueColumns, eventDateColumn];
             }
 
@@ -278,7 +302,7 @@ export const convertFromDHIS2 = async (
         }
         Object.entries(attributeMapping).forEach(([attribute, mapping]) => {
             if (mapping.value) {
-                if (mapping.specific) {
+                if (mapping.isSpecific) {
                     obj = { ...obj, [attribute]: mapping.value };
                 } else {
                     obj = {
@@ -1252,7 +1276,7 @@ export const findUniqueDataElements = (programStageMapping: StageMapping) => {
     const uniqElements = Object.entries(programStageMapping).map(
         ([stage, mapping]) => {
             const { info, ...elements } = mapping;
-            const eventDateIsUnique = info.eventDateIsUnique;
+            const eventDateIsUnique = info.uniqueEventDate;
             let uniqueColumns = Object.entries(elements).flatMap(
                 ([element, { unique, value }]) => {
                     if (unique && value) {
@@ -1269,62 +1293,6 @@ export const findUniqueDataElements = (programStageMapping: StageMapping) => {
         }
     );
     return fromPairs(uniqElements);
-};
-
-const getParentName = (parent: Partial<DHIS2OrgUnit>) => {
-    let first = parent;
-    let allNames: string[] = [];
-    while (first && first.name) {
-        allNames = [...allNames, first.name];
-        first = first.parent;
-    }
-    return allNames;
-};
-
-const getOrgUnits = (program: Partial<IProgram>): Array<Option> => {
-    return program.organisationUnits?.map(({ id, name, code, parent }) => {
-        return {
-            label: [...getParentName(parent).reverse(), name].join("/"),
-            value: id,
-            code,
-        };
-    });
-};
-const getAttributes = (program: Partial<IProgram>): Array<Option> => {
-    if (!isEmpty(program) && program.programTrackedEntityAttributes) {
-        return program.programTrackedEntityAttributes.map(
-            ({
-                mandatory,
-                trackedEntityAttribute: {
-                    id,
-                    name,
-                    code,
-                    unique,
-                    optionSetValue,
-                    optionSet,
-                    valueType,
-                },
-            }) => {
-                return {
-                    label: name,
-                    value: id,
-                    code,
-                    unique,
-                    mandatory,
-                    optionSetValue,
-                    valueType: String(valueType),
-                    availableOptions:
-                        optionSet?.options.map(({ code, id, name }) => ({
-                            label: name,
-                            code,
-                            value: code,
-                            id,
-                        })) || [],
-                };
-            }
-        );
-    }
-    return [];
 };
 
 const getDataElements = (program: Partial<IProgram>): Option[] => {
@@ -1443,29 +1411,6 @@ export const flattenGoData = (
         }
     );
 };
-export const findUniqAttributes = (
-    data: any[],
-    attributeMapping: Mapping
-): Array<Dictionary<any>> => {
-    return data.flatMap((d) => {
-        const values = Object.entries(attributeMapping).flatMap(
-            ([attribute, mapping]) => {
-                const { unique, value } = mapping;
-                const foundValue = getOr("", value, d);
-                if (unique && value && foundValue) {
-                    return { attribute, value: foundValue };
-                }
-                return [];
-            }
-        );
-        if (values.length > 0) {
-            return fromPairs<any>(
-                values.map(({ attribute, value }) => [attribute, value])
-            );
-        }
-        return [];
-    });
-};
 
 export const findTrackedEntityInstanceIds = (
     data: any[],
@@ -1480,373 +1425,41 @@ export const findTrackedEntityInstanceIds = (
     return [];
 };
 
-export const makeMetadata = (
-    program: Partial<IProgram>,
-    programMapping: Partial<IMapping>,
-    {
-        data,
-        attributeMapping,
-        dhis2Program,
-        programStageMapping,
-        goData,
-        tokens,
-        remoteOrganisations,
-        referenceData,
-    }: Partial<{
-        data: any[];
-        dhis2Program: Partial<IProgram>;
-        programStageMapping: StageMapping;
-        attributeMapping: Mapping;
-        remoteOrganisations: any[];
-        goData: Partial<IGoData>;
-        tokens: Dictionary<string>;
-        referenceData: GODataOption[];
-        trackedEntityInstanceIds: string[];
-    }>
-) => {
-    const destinationOrgUnits = getOrgUnits(program);
-    const destinationAttributes = getAttributes(program).sort((a, b) => {
-        if (a.mandatory && !b.mandatory) {
-            return -1;
-        } else if (!a.mandatory && b.mandatory) {
-            return 1;
-        }
-        return 0;
-    });
-    const uniqueAttributeValues = findUniqAttributes(data, attributeMapping);
-    const trackedEntityInstanceIds = findTrackedEntityInstanceIds(
-        data,
-        programMapping.program
-    );
-    const destinationStages =
-        program?.programStages?.map(({ id, name }) => {
-            const option: Option = {
-                label: name,
-                value: id,
-            };
-            return option;
-        }) || [];
-    const results: ProgramMetadata = {
-        sourceOrgUnits: [],
-        destinationOrgUnits,
-        sourceColumns: [],
-        destinationColumns: flattenProgram(program),
-        destinationAttributes,
-        sourceAttributes: [],
-        destinationStages,
-        sourceStages: [],
-        uniqueAttributeValues,
-        epidemiology: [],
-        case: [],
-        questionnaire: [],
-        events: [],
-        lab: [],
-        relationship: [],
-        contact: [],
-        trackedEntityInstanceIds,
-    };
-
-    if (programMapping.dataSource === "dhis2-program") {
-        const sourceOrgUnits: Array<Option> = getOrgUnits(dhis2Program);
-        const attributes = getAttributes(dhis2Program);
-        const stages = dhis2Program.programStages?.map(({ id, name }) => {
-            const option: Option = {
-                label: name,
-                value: id,
-            };
-            return option;
-        });
-        const stageDataElements = flattenProgram(dhis2Program);
-        results.sourceStages = stages;
-        results.sourceColumns = stageDataElements;
-        results.sourceAttributes = attributes;
-        results.sourceOrgUnits = sourceOrgUnits;
-    } else if (programMapping.dataSource === "go-data") {
-        let units = [];
-        let columns: Option[] = [];
-        if (remoteOrganisations.length > 0) {
-            units = remoteOrganisations.map((v: any) => {
-                const label = v["name"] || "";
-                const value = v["id"] || "";
-                return { label, value };
-            });
-        }
-        const attributes = [
-            ...GO_DATA_PERSON_FIELDS,
-            ...GO_DATA_EPIDEMIOLOGY_FIELDS,
-            ...GO_DATA_EVENTS_FIELDS,
-            ...GO_DATA_LAB_FIELDS,
-        ].map((a) => {
-            if (a.optionSet) {
+export const getAttributes = (program: Partial<IProgram>): Array<Option> => {
+    if (!isEmpty(program) && program.programTrackedEntityAttributes) {
+        return program.programTrackedEntityAttributes.map(
+            ({
+                mandatory,
+                trackedEntityAttribute: {
+                    id,
+                    name,
+                    code,
+                    unique,
+                    optionSetValue,
+                    optionSet,
+                    valueType,
+                },
+            }) => {
                 return {
-                    ...a,
-                    availableOptions: referenceData
-                        .filter((b) => b.categoryId === a.optionSet)
-                        .map((c) => {
-                            const currentLabel = tokens[c.value];
-                            return {
-                                label: currentLabel,
-                                value: c.value,
-                            };
-                        }),
+                    label: name,
+                    value: id,
+                    code,
+                    unique,
+                    mandatory,
+                    optionSetValue,
+                    valueType: String(valueType),
+                    availableOptions:
+                        optionSet?.options.map(({ code, id, name }) => ({
+                            label: name,
+                            code,
+                            value: code,
+                            id,
+                        })) || [],
                 };
             }
-            return a;
-        });
-        let investigationTemplate = [];
-        if (goData && goData.caseInvestigationTemplate) {
-            investigationTemplate = flattenGoData(
-                goData.caseInvestigationTemplate,
-                tokens
-            );
-        }
-        columns = [...attributes, ...columns, ...investigationTemplate];
-        results.sourceOrgUnits = units;
-        results.sourceColumns = columns.sort((a, b) => {
-            if (a.mandatory && !b.mandatory) {
-                return -1;
-            } else if (!a.mandatory && b.mandatory) {
-                return 1;
-            }
-            return 0;
-        });
-        results.sourceAttributes = attributes;
-        results.epidemiology = GO_DATA_EPIDEMIOLOGY_FIELDS.sort((a, b) => {
-            if (a.mandatory && !b.mandatory) {
-                return -1;
-            } else if (!a.mandatory && b.mandatory) {
-                return 1;
-            }
-            return 0;
-        }).map((a) => {
-            if (a.optionSet) {
-                return {
-                    ...a,
-                    availableOptions: referenceData
-                        .filter((b) => b.categoryId === a.optionSet)
-                        .map((c) => {
-                            const currentLabel = tokens[c.description];
-                            return {
-                                label: currentLabel,
-                                value: c.value,
-                            };
-                        }),
-                };
-            }
-            return a;
-        });
-        results.case = uniqBy(
-            "value",
-            GO_DATA_PERSON_FIELDS.filter(
-                ({ entity }) => entity && entity.indexOf("CASE") !== -1
-            )
-        )
-            .sort((a, b) => {
-                if (a.mandatory && !b.mandatory) {
-                    return -1;
-                } else if (!a.mandatory && b.mandatory) {
-                    return 1;
-                }
-                return 0;
-            })
-            .map((a) => {
-                if (a.optionSet) {
-                    return {
-                        ...a,
-                        availableOptions: referenceData
-                            .filter((b) => b.categoryId === a.optionSet)
-                            .map((c) => {
-                                const currentLabel = tokens[c.description];
-                                return {
-                                    label: currentLabel,
-                                    value: c.value,
-                                };
-                            }),
-                    };
-                }
-                return a;
-            });
-        results.contact = uniqBy(
-            "value",
-            GO_DATA_PERSON_FIELDS.filter(
-                ({ entity }) => entity && entity.indexOf("CONTACT") !== -1
-            )
-        )
-            .sort((a, b) => {
-                if (a.mandatory && !b.mandatory) {
-                    return -1;
-                } else if (!a.mandatory && b.mandatory) {
-                    return 1;
-                }
-                return 0;
-            })
-            .map((a) => {
-                if (a.optionSet) {
-                    return {
-                        ...a,
-                        availableOptions: referenceData
-                            .filter((b) => b.categoryId === a.optionSet)
-                            .map((c) => {
-                                const currentLabel = tokens[c.description];
-                                return {
-                                    label: currentLabel,
-                                    value: c.value,
-                                };
-                            }),
-                    };
-                }
-                return a;
-            });
-        results.events = uniqBy("value", [
-            ...attributes.filter(
-                ({ entity }) => entity && entity.indexOf("EVENT") !== -1
-            ),
-            ...GO_DATA_EVENTS_FIELDS,
-        ])
-            .sort((a, b) => {
-                if (a.mandatory && !b.mandatory) {
-                    return -1;
-                } else if (!a.mandatory && b.mandatory) {
-                    return 1;
-                }
-                return 0;
-            })
-            .map((a) => {
-                if (a.optionSet) {
-                    return {
-                        ...a,
-                        availableOptions: referenceData
-                            .filter((b) => b.categoryId === a.optionSet)
-                            .map((c) => {
-                                const currentLabel = tokens[c.description];
-                                return {
-                                    label: currentLabel,
-                                    value: c.value,
-                                };
-                            }),
-                    };
-                }
-                return a;
-            });
-        results.lab = GO_DATA_LAB_FIELDS.sort((a, b) => {
-            if (a.mandatory && !b.mandatory) {
-                return -1;
-            } else if (!a.mandatory && b.mandatory) {
-                return 1;
-            }
-            return 0;
-        }).map((a) => {
-            if (a.optionSet) {
-                return {
-                    ...a,
-                    availableOptions: referenceData
-                        .filter((b) => b.categoryId === a.optionSet)
-                        .map((c) => {
-                            const currentLabel = tokens[c.description];
-                            return {
-                                label: currentLabel,
-                                value: c.value,
-                            };
-                        }),
-                };
-            }
-            return a;
-        });
-        results.relationship = GO_DATA_RELATIONSHIP_FIELDS.sort((a, b) => {
-            if (a.mandatory && !b.mandatory) {
-                return -1;
-            } else if (!a.mandatory && b.mandatory) {
-                return 1;
-            }
-            return 0;
-        }).map((a) => {
-            if (a.optionSet) {
-                return {
-                    ...a,
-                    availableOptions: referenceData
-                        .filter((b) => b.categoryId === a.optionSet)
-                        .map((c) => {
-                            const currentLabel = tokens[c.description];
-                            return {
-                                label: currentLabel,
-                                value: c.value,
-                            };
-                        }),
-                };
-            }
-            return a;
-        });
-        results.questionnaire = investigationTemplate;
-    } else {
-        let columns: Array<Option> = [];
-        if (
-            programMapping.program.metadataOptions &&
-            programMapping.program.metadataOptions.metadata &&
-            programMapping.program.metadataOptions.metadata.length > 0
-        ) {
-            columns = programMapping.program.metadataOptions.metadata;
-        } else if (data.length > 0) {
-            columns = Object.keys(data[0]).map((key) => {
-                const option: Option = {
-                    label: key,
-                    value: key,
-                };
-                return option;
-            });
-        }
-
-        let units: Array<Option> = [];
-        if (
-            ["api", "manual"].indexOf(programMapping.orgUnitSource) !== -1 &&
-            remoteOrganisations.length > 0 &&
-            programMapping.remoteOrgUnitLabelField &&
-            programMapping.remoteOrgUnitValueField
-        ) {
-            units = remoteOrganisations.map((v: any) => {
-                const label = v[programMapping.remoteOrgUnitLabelField] || "";
-                const value = v[programMapping.remoteOrgUnitValueField] || "";
-                return { label, value };
-            });
-        } else {
-            units = uniqBy(
-                "value",
-                data.map((d) => {
-                    const option: Option = {
-                        label: getOr("", programMapping.orgUnitColumn || "", d),
-                        value: getOr("", programMapping.orgUnitColumn || "", d),
-                    };
-                    return option;
-                })
-            );
-        }
-
-        results.sourceOrgUnits = units;
-        results.sourceColumns = columns;
-        results.sourceAttributes = columns;
+        );
     }
-
-    if (programMapping.isSource) {
-        return {
-            sourceColumns: results.destinationColumns,
-            destinationColumns: results.sourceColumns,
-            sourceOrgUnits: results.destinationOrgUnits,
-            destinationOrgUnits: results.sourceOrgUnits,
-            sourceAttributes: results.destinationAttributes,
-            destinationAttributes: results.sourceAttributes,
-            sourceStages: results.destinationStages,
-            destinationStages: results.sourceStages,
-            uniqueAttributeValues,
-            epidemiology: results.epidemiology,
-            case: results.case,
-            contact: results.contact,
-            questionnaire: results.questionnaire,
-            events: results.events,
-            lab: results.lab,
-            relationship: results.relationship,
-            trackedEntityInstanceIds: results.trackedEntityInstanceIds,
-        };
-    }
-    return results;
+    return [];
 };
 
 export const makeValidation = (state: Partial<IProgram>) => {
@@ -1966,7 +1579,7 @@ export const programStageUniqColumns = (
     const uniqElements = Object.entries(programStageMapping).map(
         ([stage, mapping]) => {
             const { info, ...elements } = mapping;
-            const eventDateIsUnique = info.eventDateIsUnique;
+            const eventDateIsUnique = info.uniqueEventDate;
             let uniqueColumns = Object.entries(elements).flatMap(
                 ([_, { unique, value }]) => {
                     if (unique && value) {
@@ -1991,7 +1604,7 @@ export const programStageUniqElements = (
     const uniqElements = Object.entries(programStageMapping).map(
         ([stage, mapping]) => {
             const { info, ...elements } = mapping;
-            const eventDateIsUnique = info.eventDateIsUnique;
+            const eventDateIsUnique = info.customDueDateColumn;
             let uniqueColumns = Object.entries(elements).flatMap(
                 ([element, { unique, value }]) => {
                     if (unique && value) {
@@ -2038,7 +1651,7 @@ const hasLogins = (programMapping: Partial<IMapping>) => {
 };
 
 const hasRemote = (programMapping: Partial<IMapping>) => {
-    return !isEmpty(programMapping.program.remoteProgram);
+    return !isEmpty(programMapping.program?.remoteProgram);
 };
 
 const hasName = (programMapping: Partial<IMapping>) => {
@@ -2053,19 +1666,19 @@ const hasData = (programMapping: Partial<IMapping>, data: any[]) => {
 };
 
 const hasProgram = (programMapping: Partial<IMapping>) =>
-    !isEmpty(programMapping.program.program);
+    !isEmpty(programMapping.program?.program);
 
 const hasRemoteProgram = (programMapping: Partial<IMapping>) =>
-    !isEmpty(programMapping.program.remoteProgram);
+    !isEmpty(programMapping.program?.remoteProgram);
 
 const hasOrgUnitColumn = (programMapping: Partial<IMapping>) =>
     !isEmpty(programMapping.orgUnitColumn);
 
 const createEnrollment = (programMapping: Partial<IMapping>) => {
-    if (programMapping.program.createEnrollments) {
+    if (programMapping.program?.createEnrollments) {
         return (
-            !isEmpty(programMapping.program.enrollmentDateColumn) &&
-            !isEmpty(programMapping.program.incidentDateColumn)
+            !isEmpty(programMapping.program?.enrollmentDateColumn) &&
+            !isEmpty(programMapping.program?.incidentDateColumn)
         );
     }
     return true;
@@ -2114,15 +1727,15 @@ const mandatoryGoDataMapped = ({
 }: {
     mapping: Partial<IMapping>;
     attributeMapping: Mapping;
-    metadata: ProgramMetadata;
+    metadata: Metadata;
 }) => {
     const allAttributes = Object.keys(attributeMapping);
     const hasLab = metadata.lab.find(
         ({ value }) => allAttributes.indexOf(value) !== -1
     );
-    if (mapping.program.responseKey === "EVENT") {
+    if (mapping.program?.responseKey === "EVENT") {
         return mandatoryAttributesMapped(metadata.events, attributeMapping);
-    } else if (mapping.program.responseKey === "CASE") {
+    } else if (mapping.program?.responseKey === "CASE") {
         if (hasLab) {
             return mandatoryAttributesMapped(
                 [...metadata.case, ...metadata.epidemiology, ...metadata.lab],
@@ -2133,7 +1746,7 @@ const mandatoryGoDataMapped = ({
             [...metadata.case, ...metadata.epidemiology],
             attributeMapping
         );
-    } else if (mapping.program.responseKey === "CONTACT") {
+    } else if (mapping.program?.responseKey === "CONTACT") {
         if (hasLab) {
             return mandatoryAttributesMapped(
                 [
@@ -2195,7 +1808,7 @@ const isValidProgramStage = (
 };
 
 export const isDisabled = ({
-    programMapping,
+    mapping,
     programStageMapping,
     attributeMapping,
     organisationUnitMapping,
@@ -2207,7 +1820,7 @@ export const isDisabled = ({
     metadata,
     hasError,
 }: {
-    programMapping: Partial<IMapping>;
+    mapping: Partial<IMapping>;
     programStageMapping: StageMapping;
     attributeMapping: Mapping;
     organisationUnitMapping: Mapping;
@@ -2216,30 +1829,28 @@ export const isDisabled = ({
     destinationFields: Option[];
     data: any[];
     program: Partial<IProgram>;
-    metadata: ProgramMetadata;
+    metadata: Metadata;
     hasError: boolean;
 }) => {
     const allOptions = {
         2: {
             "go-data":
-                !hasName(programMapping) ||
-                !validURL(programMapping, mySchema) ||
-                !hasLogins(programMapping),
-            "csv-line-list":
-                !hasData(programMapping, data) || !hasName(programMapping),
-            "xlsx-line-list":
-                !hasData(programMapping, data) || !hasName(programMapping),
-            "dhis2-program": !hasName(programMapping),
-            json: !hasData(programMapping, data) || !hasName(programMapping),
-            api: data.length === 0 || !hasName(programMapping),
+                !hasName(mapping) ||
+                !validURL(mapping, mySchema) ||
+                !hasLogins(mapping),
+            "csv-line-list": !hasData(mapping, data) || !hasName(mapping),
+            "xlsx-line-list": !hasData(mapping, data) || !hasName(mapping),
+            "dhis2-program": !hasName(mapping),
+            json: !hasData(mapping, data) || !hasName(mapping),
+            api: data.length === 0 || !hasName(mapping),
         },
         3: {
-            "go-data": !hasProgram(programMapping),
-            "csv-line-list": !hasProgram(programMapping),
-            "xlsx-line-list": !hasProgram(programMapping),
-            "dhis2-program": !hasProgram(programMapping),
-            json: !hasProgram(programMapping),
-            api: !hasProgram(programMapping),
+            "go-data": !hasProgram(mapping),
+            "csv-line-list": !hasProgram(mapping),
+            "xlsx-line-list": !hasProgram(mapping),
+            "dhis2-program": !hasProgram(mapping),
+            json: !hasProgram(mapping),
+            api: !hasProgram(mapping),
         },
         4: {
             "go-data": false,
@@ -2250,7 +1861,7 @@ export const isDisabled = ({
             api: false,
         },
         5: {
-            "go-data": !hasRemote(programMapping),
+            "go-data": !hasRemote(mapping),
             "csv-line-list": false,
             "xlsx-line-list": false,
             "dhis2-program": false,
@@ -2261,33 +1872,30 @@ export const isDisabled = ({
             "go-data": false,
             "csv-line-list": false,
             "xlsx-line-list": false,
-            "dhis2-program": !hasRemoteProgram(programMapping),
+            "dhis2-program": !hasRemoteProgram(mapping),
             json: false,
             api: false,
         },
         7: {
-            "go-data": !hasOrgUnitMapping(
-                programMapping,
-                organisationUnitMapping
-            ),
+            "go-data": !hasOrgUnitMapping(mapping, organisationUnitMapping),
             "csv-line-list": !hasOrgUnitMapping(
-                programMapping,
+                mapping,
                 organisationUnitMapping
             ),
             "xlsx-line-list": !hasOrgUnitMapping(
-                programMapping,
+                mapping,
                 organisationUnitMapping
             ),
             "dhis2-program": !hasOrgUnitMapping(
-                programMapping,
+                mapping,
                 organisationUnitMapping
             ),
-            json: !hasOrgUnitMapping(programMapping, organisationUnitMapping),
-            api: !hasOrgUnitMapping(programMapping, organisationUnitMapping),
+            json: !hasOrgUnitMapping(mapping, organisationUnitMapping),
+            api: !hasOrgUnitMapping(mapping, organisationUnitMapping),
         },
         8: {
             "go-data": !mandatoryGoDataMapped({
-                mapping: programMapping,
+                mapping: mapping,
                 attributeMapping,
                 metadata,
             }),
@@ -2348,8 +1956,8 @@ export const isDisabled = ({
         },
     };
     if (hasError) return hasError;
-    if (programMapping.dataSource) {
-        return allOptions[step][programMapping.dataSource];
+    if (mapping.dataSource) {
+        return allOptions[step]?.[mapping.dataSource];
     }
     return true;
 };
@@ -2809,6 +2417,7 @@ export const fetchTrackedEntityInstances = async (
         uniqueAttributeValues.length > 0 &&
         numberOfUniqAttribute > 1
     ) {
+        console.log("We are in searching");
         let page = 1;
         const chunkedData = chunk(Number(pageSize), uniqueAttributeValues);
         for (const attributeValues of chunkedData) {
@@ -2854,6 +2463,7 @@ export const fetchTrackedEntityInstances = async (
             page = page + 1;
         }
     } else if (!withAttributes) {
+        console.log("We are in attributes");
         let page = 1;
         let params: { [key: string]: string } = {
             fields,
@@ -3150,34 +2760,188 @@ export const fetchGoDataData = async (
     };
 };
 
+const convertEntities = (entities: Partial<TrackedEntityInstance>[]) => {
+    return entities.map(({ trackedEntityInstance, ...rest }) => ({
+        ...rest,
+        trackedEntity: trackedEntityInstance,
+    }));
+};
+
+const convertEnrollments = (enrollments: Partial<Enrollment>[]) => {
+    return enrollments.map(
+        ({ trackedEntityInstance, incidentDate, enrollmentDate, ...rest }) => ({
+            ...rest,
+            trackedEntity: trackedEntityInstance,
+            enrolledAt: enrollmentDate,
+            occurredAt: incidentDate,
+        })
+    );
+};
+
+const convertEvents = (enrollments: Partial<Event>[]) => {
+    return enrollments.map(
+        ({ trackedEntityInstance, eventDate, dueDate, ...rest }) => ({
+            ...rest,
+            trackedEntity: trackedEntityInstance,
+            scheduledAt: dueDate,
+            occurredAt: eventDate,
+        })
+    );
+};
+
+export const insertTrackerData38 = async ({
+    processedData,
+    api,
+    async,
+    chunkSize,
+    onInsert,
+}: {
+    processedData: Partial<Processed>;
+    api: Partial<{ engine: any; axios: AxiosInstance }>;
+    async: boolean;
+    chunkSize: number;
+    onInsert: (response: any) => void;
+}) => {
+    let {
+        enrollments,
+        events,
+        trackedEntityInstances,
+        trackedEntityInstanceUpdates,
+        eventUpdates,
+    } = processedData;
+
+    let availableEvents = events.concat(eventUpdates ?? []);
+    let availableEntities = trackedEntityInstances.concat(
+        trackedEntityInstanceUpdates ?? []
+    );
+    for (const instances of chunk(chunkSize, availableEntities)) {
+        const instanceIds = instances.map(
+            ({ trackedEntityInstance }) => trackedEntityInstance
+        );
+        const validEnrollments = enrollments.filter(
+            ({ trackedEntityInstance }) =>
+                instanceIds.indexOf(trackedEntityInstance) !== -1
+        );
+        const enrollmentIds = validEnrollments.map(
+            ({ enrollment }) => enrollment
+        );
+        const validEvents = availableEvents.filter(
+            ({ enrollment }) => enrollmentIds.indexOf(enrollment) !== -1
+        );
+
+        availableEvents = availableEvents.filter(
+            ({ enrollment }) => enrollmentIds.indexOf(enrollment) === -1
+        );
+        enrollments = enrollments.filter(
+            ({ trackedEntityInstance }) =>
+                instanceIds.indexOf(trackedEntityInstance) === -1
+        );
+        try {
+            if (api.engine) {
+                const response: any = await api.engine.mutate({
+                    type: "create",
+                    resource: "tracker",
+                    data: {
+                        trackedEntities: convertEntities(instances),
+                        enrollments: convertEnrollments(validEnrollments),
+                        events: convertEvents(validEvents),
+                    },
+                    params: { async },
+                });
+                onInsert(response);
+            } else if (api.axios) {
+                const { data } = await api.axios.post(
+                    "api/trackedEntityInstances",
+                    {
+                        trackedEntities: convertEntities(instances),
+                        enrollments: convertEnrollments(validEnrollments),
+                        events: convertEvents(validEvents),
+                    },
+                    { params: { async } }
+                );
+                onInsert(data);
+            }
+        } catch (error: any) {}
+    }
+
+    for (const enrollment of chunk(chunkSize, enrollments)) {
+        const enrollmentIds = enrollment.map(({ enrollment }) => enrollment);
+        const validEvents = availableEvents.filter(
+            ({ enrollment }) => enrollmentIds.indexOf(enrollment) !== -1
+        );
+        availableEvents = availableEvents.filter(
+            ({ enrollment }) => enrollmentIds.indexOf(enrollment) === -1
+        );
+
+        try {
+            if (api.engine) {
+                const response: any = await api.engine.mutate({
+                    type: "create",
+                    resource: "tracker",
+                    data: {
+                        enrollments: convertEnrollments(enrollment),
+                        events: convertEvents(validEvents),
+                    },
+                    params: { async },
+                });
+                onInsert(response);
+            } else if (api.axios) {
+                const { data } = await api.axios.post(
+                    "api/tracker",
+                    {
+                        enrollments: convertEnrollments(enrollment),
+                        events: convertEvents(validEvents),
+                    },
+                    { params: { async } }
+                );
+                onInsert(data);
+            }
+        } catch (error: any) {}
+    }
+
+    for (const currentEvents of chunk(chunkSize, availableEvents)) {
+        try {
+            if (api.engine) {
+                const response = await api.engine.mutate({
+                    type: "create",
+                    resource: "tracker",
+                    data: { events: convertEvents(currentEvents) },
+                    params: { async },
+                });
+                onInsert(response);
+            } else if (api.axios) {
+                const { data } = await api.axios.post(
+                    "api/tracker",
+                    {
+                        events: convertEvents(currentEvents),
+                    },
+                    { params: { async } }
+                );
+                onInsert(data);
+            }
+        } catch (error: any) {}
+    }
+};
+
 export const insertTrackerData = async ({
     processedData,
     callBack,
     api,
-    instanceCallBack,
-    enrollmentsCallBack,
-    eventsCallBack,
+    onInsert,
+    chunkSize,
 }: {
     processedData: Partial<Processed>;
     callBack: (message: string) => void;
     api: Partial<{ engine: any; axios: AxiosInstance }>;
-    enrollmentsCallBack: (response: any) => void;
-    eventsCallBack: (response: any) => void;
-    instanceCallBack: (response: {
-        conflicts: any[];
-        imported: number;
-        updated: number;
-        deleted: number;
-        total: number;
-        ignored: number;
-    }) => void;
+    chunkSize: number;
+    onInsert: (resource: string, response: any) => void;
 }) => {
     const {
         enrollments,
         events,
         trackedEntityInstances,
-        trackedEntityInstancesUpdates,
-        eventsUpdates,
+        trackedEntityInstanceUpdates,
+        eventUpdates,
     } = processedData;
 
     const allTotalEnrollments = enrollments?.length;
@@ -3188,13 +2952,14 @@ export const insertTrackerData = async ({
     let failedInstances: string[] = [];
     let failedEnrollments: string[] = [];
 
-    for (const instances of chunk(
-        50,
-        trackedEntityInstances.concat(trackedEntityInstancesUpdates ?? [])
-    )) {
+    const allTrackedEntityInstances = trackedEntityInstances.concat(
+        trackedEntityInstanceUpdates ?? []
+    );
+
+    for (const instances of chunk(chunkSize, allTrackedEntityInstances)) {
         currentTotalEntities = currentTotalEntities + instances.length;
         callBack(
-            `Creating tracked entities ${currentTotalEntities}/${trackedEntityInstances.length}`
+            `Creating tracked entities ${currentTotalEntities}/${allTrackedEntityInstances.length}`
         );
         try {
             if (api.engine) {
@@ -3203,19 +2968,19 @@ export const insertTrackerData = async ({
                     resource: "trackedEntityInstances",
                     data: { trackedEntityInstances: instances },
                 });
-                instanceCallBack(response);
+                onInsert("entities", response);
             } else if (api.axios) {
                 const {
                     data: { response },
                 } = await api.axios.post("api/trackedEntityInstances", {
                     trackedEntityInstances: instances,
                 });
-                instanceCallBack(response);
+                onInsert("entities", response);
             }
         } catch (error: any) {
             const { failed, ...rest } = getConflicts(error.details ?? error);
             failedInstances = failedInstances.concat(failed);
-            instanceCallBack(rest);
+            onInsert("entities", rest);
         }
     }
 
@@ -3237,25 +3002,25 @@ export const insertTrackerData = async ({
                     resource: "enrollments",
                     data: { enrollments: enrollment },
                 });
-                enrollmentsCallBack(response);
+                onInsert("enrollments", response);
             } else if (api.axios) {
                 const {
                     data: { response },
                 } = await api.axios.post("api/enrollments", {
                     enrollments: enrollment,
                 });
-                enrollmentsCallBack(response);
+                onInsert("enrollments", response);
             }
         } catch (error: any) {
             const actualError = error.details ?? error;
             const { failed, ...rest } = getConflicts(actualError);
-            enrollmentsCallBack(rest);
+            onInsert("enrollments", rest);
             failedEnrollments = failedEnrollments.concat(failed);
         }
     }
 
     const validEvents = events
-        .concat(eventsUpdates ?? [])
+        .concat(eventUpdates ?? [])
         .filter(
             ({ trackedEntityInstance, enrollment }) =>
                 trackedEntityInstance &&
@@ -3276,18 +3041,18 @@ export const insertTrackerData = async ({
                     resource: "events",
                     data: { events: currentEvents },
                 });
-                eventsCallBack(response);
+                onInsert("events", response);
             } else if (api.axios) {
                 const {
                     data: { response },
                 } = await api.axios.post("api/events", {
                     events: currentEvents,
                 });
-                eventsCallBack(response);
+                onInsert("events", response);
             }
         } catch (error: any) {
             const { failed, ...rest } = getConflicts(error.details ?? error);
-            eventsCallBack(rest);
+            onInsert("events", rest);
         }
     }
 };

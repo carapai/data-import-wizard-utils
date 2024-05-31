@@ -3,7 +3,8 @@ import { z } from "zod";
 // import { data } from "./dhis2";
 import { IProgramMapping, Mapping } from "./interfaces";
 import { outbreak } from "./outbreak";
-import { convertToGoData, flattenGoData, makeMetadata } from "./program";
+import { convertToGoData, flattenGoData } from "./program";
+import { makeMetadata } from "./metadata";
 
 import data from "./metadata/data.json";
 import attributeMapping from "./metadata/attributeMapping.json";
@@ -65,7 +66,7 @@ test("Change Attribute", () => {
     const obj2 = updateObject(obj, {
         attribute: "address[0].typeId",
         value: true,
-        key: "specific",
+        key: "isSpecific",
     });
     console.log(obj2);
     expect(1).toBe(1);

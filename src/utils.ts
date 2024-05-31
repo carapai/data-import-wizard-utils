@@ -34,6 +34,7 @@ import {
     IGoDataOrgUnit,
     IMapping,
     IProgram,
+    IProgramMapping,
     Mapping,
     Option,
     Param,
@@ -53,6 +54,7 @@ import {
     flattenTrackedEntityInstances,
     processPreviousInstances,
 } from "./program";
+import dayjs from "dayjs";
 
 export function modifyGoDataOu(
     node: GoDataOuTree,
@@ -603,7 +605,7 @@ export const evaluateMapping = (
             if (mapping) {
                 const validation = ValueType[mapping.valueType];
                 let value = getOr("", mapping.value, instanceData);
-                if (mapping.specific) {
+                if (mapping.isSpecific) {
                     value = mapping.value;
                 } else if (value && valueType === "INTEGER") {
                     value = parseInt(value, 10);
@@ -1247,9 +1249,13 @@ export const createOptions2 = (
     });
 };
 
+export type DisabledPeriod = 0 | 1 | 2;
+
 export type PickerProps = {
     selectedPeriods: Period[];
     onChange: (periods: Period[], remove: boolean) => void;
+    disabled?: DisabledPeriod[];
+    active?: DisabledPeriod;
 };
 
 export const processDataSet = ({
@@ -1353,8 +1359,18 @@ export const validateValue = ({
     if (mapping.value) {
         const validation = ValueType[option.valueType];
         let value = getOr("", mapping.value, data);
-        if (mapping.specific) {
+        if (mapping.isSpecific) {
             value = mapping.value;
+        }
+        if (mapping.isCustom) {
+            if (mapping.customType === "join columns") {
+                value = mapping.value
+                    .split(",")
+                    .map((col) => getOr("", col, data))
+                    .join(" ");
+            } else if (mapping.customType === "extract year") {
+                value = dayjs(value, "YYYY-MM-DD").format("YYYY");
+            }
         }
         if (option.optionSetValue) {
             value = flippedOptions[value] || value;
@@ -1417,6 +1433,7 @@ export const validateValue = ({
                         value: String(value).replace("Z", ""),
                     };
                 }
+                console.log("We come after validation", value);
                 return { success: true, value };
             } catch (error) {
                 const { issues } = error;
@@ -1720,7 +1737,7 @@ export const getConflicts = (error: DHIS2Response) => {
 export const processInstances = async (
     {
         trackedEntityInstances,
-        programMapping,
+        mapping,
         attributeMapping,
         api,
         version,
@@ -1733,7 +1750,7 @@ export const processInstances = async (
         setMessage,
     }: {
         attributeMapping: Mapping;
-        programMapping: Partial<IMapping>;
+        mapping: Partial<IMapping>;
         trackedEntityInstances: Array<Partial<TrackedEntityInstance>>;
         api: Partial<{ engine: any; axios: AxiosInstance }>;
         version: number;
@@ -1755,7 +1772,7 @@ export const processInstances = async (
     );
     let uniqueAttributeValues: any[] = [];
     let trackedInstanceIds: string[] = [];
-    if (programMapping.program?.trackedEntityInstanceColumn) {
+    if (mapping.program?.trackedEntityInstanceColumn) {
         trackedInstanceIds = trackedEntityInstances
             .map(({ trackedEntityInstance }) => trackedEntityInstance ?? "")
             .filter((a) => a !== "");
@@ -1770,7 +1787,7 @@ export const processInstances = async (
         setMessage(`Fetching data from destination program`);
         const instances = await fetchTrackedEntityInstances({
             api,
-            program: programMapping.program?.program,
+            program: mapping.program?.program,
             additionalParams: {},
             uniqueAttributeValues,
             withAttributes: true,
@@ -1783,7 +1800,7 @@ export const processInstances = async (
             trackedEntityInstances: instances.trackedEntityInstances,
             programUniqAttributes,
             programStageUniqueElements,
-            currentProgram: programMapping.program?.program,
+            currentProgram: mapping.program?.program,
             eventIdIdentifiesEvent: trackedInstanceIds.length > 0,
             trackedEntityIdIdentifiesInstance: trackedInstanceIds.length > 0,
         });
@@ -1791,7 +1808,7 @@ export const processInstances = async (
         const convertedData = await convertToDHIS2({
             previousData: previous,
             data: currentData,
-            mapping: programMapping,
+            mapping: mapping,
             organisationUnitMapping,
             attributeMapping,
             programStageMapping,

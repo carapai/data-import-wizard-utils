@@ -1,14 +1,14 @@
+import { OptionBase } from "chakra-react-select";
+import { Dictionary } from "lodash";
 import type {
     ZodBoolean,
     ZodEffects,
     ZodLiteral,
     ZodNumber,
     ZodString,
-    string,
 } from "zod";
 import z from "zod";
-import { OptionBase } from "chakra-react-select";
-import { Dictionary } from "lodash";
+export type Extraction = "json" | "cell" | "column";
 export type DataSource =
     | "api"
     | "json"
@@ -42,11 +42,17 @@ export interface INamed {
     name: string;
     description?: string;
 }
-export interface DHIS2Options {
+export interface DHIS2DestinationOptions {
+    chunkSize: number;
+    async: boolean;
+}
+
+export interface DHIS2SourceOptions {
     programStage: string[];
-    prefetch: boolean;
     ous: string[];
     period: Period[];
+    useAnalytics: boolean;
+    searchPeriod: "enrollmentDate" | "eventDate";
 }
 
 export type Update = {
@@ -63,8 +69,8 @@ export type Processed = {
     trackedEntityInstances: Array<Partial<TrackedEntityInstance>>;
     enrollments: Array<Partial<Enrollment>>;
     events: Array<Partial<Event>>;
-    trackedEntityInstancesUpdates: Array<Partial<TrackedEntityInstance>>;
-    eventsUpdates: Array<Partial<Event>>;
+    trackedEntityInstanceUpdates: Array<Partial<TrackedEntityInstance>>;
+    eventUpdates: Array<Partial<Event>>;
     errors: Array<any>;
     conflicts: Array<any>;
 };
@@ -133,13 +139,20 @@ export interface Authentication {
     password: string;
     url: string;
     hasNextLink: boolean;
-    headers: {
-        [key: string]: Partial<Param>;
-    };
-    params: {
-        [key: string]: Partial<Param>;
-    };
+    headers: Record<string, Partial<Param>>;
+    params: Record<string, Partial<Param>>;
 }
+
+export type MetadataOptions = {
+    labelField: string;
+    valueField: string;
+    metadata: Option[];
+    sourceType: "api" | "upload";
+    idField: string;
+    requiredField: string;
+    dhis2: string;
+    mapper: string;
+};
 
 export interface IProgramMapping {
     program: string;
@@ -156,16 +169,7 @@ export interface IProgramMapping {
     trackedEntityInstanceColumn: string;
     trackedEntityInstanceColumnIsManual: boolean;
     onlyEnrollOnce: boolean;
-    metadataOptions: {
-        labelField: string;
-        valueField: string;
-        metadata: Option[];
-        sourceType: "api" | "upload";
-        idField: string;
-        requiredField: string;
-        dhis2: string;
-        mapper: string;
-    };
+    metadataOptions: MetadataOptions;
     withoutRegistration: boolean;
     responseKey: string;
     remoteProgram: string;
@@ -222,7 +226,9 @@ export interface IMapping {
     aggregate: Partial<IAggregateMapping>;
     program: Partial<IProgramMapping>;
     dataSource: DataSource;
-    dhis2Options: Partial<DHIS2Options>;
+    dhis2SourceOptions: Partial<DHIS2SourceOptions>;
+    dhis2DestinationOptions: Partial<DHIS2DestinationOptions>;
+    chunkSize: number;
 }
 
 export interface IProgramStage {
@@ -309,19 +315,21 @@ export interface IProgram {
 }
 
 export interface RealMapping {
-    manual: boolean;
+    isCustom: boolean;
     mandatory: boolean;
     value: string;
     eventDateColumn: string;
     dueDateColumn: string;
+    eventIdColumn: string;
+    customDueDateColumn: boolean;
+    customEventDateColumn: boolean;
+    customEventIdColumn: boolean;
     unique: boolean;
     createEvents: boolean;
     updateEvents: boolean;
-    eventDateIsUnique: boolean;
-    eventIdColumn: string;
+    uniqueEventDate: boolean;
     stage: string;
-    eventIdColumnIsManual: boolean;
-    specific: boolean;
+    isSpecific: boolean;
     valueType: string;
     isOrgUnit: boolean;
     completeEvents: boolean;
@@ -329,6 +337,7 @@ export interface RealMapping {
     latitudeColumn: string;
     geometryColumn: string;
     geometryMerged: boolean;
+    customType: string;
 }
 
 export interface Mapping {
@@ -913,24 +922,28 @@ export type AggMetadata = {
     destinationCategoryOptionCombos: Array<Option>;
     sourceCategoryOptionCombos: Array<Option>;
 };
-export type ProgramMetadata = {
-    sourceOrgUnits: Array<Option>;
-    destinationOrgUnits: Array<Option>;
-    sourceColumns: Array<Option>;
-    destinationColumns: Array<Option>;
-    sourceAttributes: Array<Option>;
-    destinationAttributes: Array<Option>;
-    sourceStages: Array<Option>;
-    destinationStages: Array<Option>;
+export type Metadata = {
+    sourceOrgUnits: Option[];
+    destinationOrgUnits: Option[];
+    sourceColumns: Option[];
+    destinationColumns: Option[];
+    sourceAttributes: Option[];
+    destinationAttributes: Option[];
+    sourceStages: Option[];
+    destinationStages: Option[];
     uniqueAttributeValues: Array<Dictionary<any>>;
-    epidemiology: Array<Option>;
-    case: Array<Option>;
-    questionnaire: Array<Option>;
-    events: Array<Option>;
-    lab: Array<Option>;
-    relationship: Array<Option>;
-    contact: Array<Option>;
+    epidemiology: Option[];
+    case: Option[];
+    questionnaire: Option[];
+    events: Option[];
+    lab: Option[];
+    relationship: Option[];
+    contact: Option[];
     trackedEntityInstanceIds: any[];
+    destinationCategories: Option[];
+    destinationCategoryOptionCombos: Option[];
+    sourceCategoryOptionCombos: Option[];
+    sourceCategories: Option[];
 };
 
 export interface GoDataOuTree {
@@ -1036,3 +1049,33 @@ export type PartialEvent = Partial<{
     dataValues: Dictionary<string>;
     geometry: any;
 }>;
+
+export type OtherProcessed = {
+    newInserts: Array<any>;
+    updates: Array<any>;
+    events: Array<any>;
+    labResults: { [key: string]: any };
+};
+
+export type DHIS2SOptions = keyof DHIS2SourceOptions;
+export type DHIS2DOptions = keyof DHIS2DestinationOptions;
+export type AggregateOptions = keyof IAggregateMapping;
+export type ProgramOptions = keyof IProgramMapping;
+export type AuthOptions = keyof Authentication;
+
+export type KeyOptions =
+    | DHIS2DOptions
+    | DHIS2SOptions
+    | AggregateOptions
+    | ProgramOptions
+    | AuthOptions;
+
+export type SubKeys = keyof MetadataOptions;
+export type ParamsOptions = keyof Param;
+
+export type MappingEvent = {
+    attribute: keyof IMapping;
+    value: any;
+    path?: KeyOptions;
+    subPath?: SubKeys | AuthOptions | ParamsOptions | string;
+};

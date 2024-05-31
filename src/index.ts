@@ -4,3 +4,4 @@ export * from "./uid";
 export * from "./utils";
 export * from "./constants";
 export * from "./aggregate";
+export * from "./metadata";
