@@ -138,7 +138,6 @@ export const makeMetadata = ({
         results.destinationAttributes = destinationAttributes;
         results.uniqueAttributeValues = uniqueAttributeValues;
     } else if (mapping.type === "aggregate" && !isEmpty(dataSet)) {
-        console.log(indicators);
         if (programIndicators && programIndicators.length > 0) {
             results.sourceColumns = programIndicators;
         } else if (indicators && indicators.length > 0) {

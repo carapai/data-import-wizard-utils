@@ -1,16 +1,7 @@
 import { AxiosInstance } from "axios";
-import { isFuture } from "date-fns";
-import { format, isValid, parseISO } from "date-fns/fp";
+import dayjs from "dayjs";
 import { diff } from "jiff";
-import {
-    Dictionary,
-    isArray,
-    maxBy,
-    minBy,
-    range,
-    unionBy,
-    uniq,
-} from "lodash";
+import { Dictionary, isArray, maxBy, minBy, unionBy, uniq } from "lodash";
 import {
     chunk,
     fromPairs,
@@ -20,7 +11,6 @@ import {
     uniqBy,
     update,
 } from "lodash/fp";
-// import pLimit from "p-limit";
 import { z } from "zod";
 import {
     GO_DATA_EPIDEMIOLOGY_FIELDS,
@@ -32,16 +22,13 @@ import {
 import {
     Authentication,
     CaseInvestigationTemplate,
-    DHIS2OrgUnit,
-    DataSource,
     Enrollment,
     Event,
-    FlattenedEvent,
     FlattenedInstance,
-    GODataOption,
     GODataTokenGenerationResponse,
     GoDataEvent,
     GoResponse,
+    IDataSet,
     IGoData,
     IGoDataData,
     IMapping,
@@ -49,9 +36,9 @@ import {
     IProgramMapping,
     IProgramStage,
     Mapping,
+    Metadata,
     Option,
     Processed,
-    Metadata,
     StageMapping,
     TrackedEntityInstance,
     ValueType,
@@ -105,21 +92,33 @@ export const findUniqAttributes = (
     });
 };
 
-const processEvents = (
-    data: any[],
-    programStageMapping: { [key: string]: Mapping },
-    trackedEntityInstance: string,
-    enrollment: string,
-    orgUnit: string,
-    program: string,
+const processEvents = ({
+    data,
+    programStageMapping,
+    trackedEntityInstance,
+    enrollment,
+    orgUnit,
+    program,
+    previousEvents,
+    stages,
+    options,
+    dataElements,
+    uniqueKey,
+}: {
+    data: any[];
+    programStageMapping: { [key: string]: Mapping };
+    trackedEntityInstance: string;
+    enrollment: { enrollmentDate: string; enrollment: string };
+    orgUnit: string;
+    program: string;
     previousEvents: Dictionary<{
         [key: string]: { [key: string]: any };
-    }>,
-    stages: Dictionary<IProgramStage>,
-    options: Dictionary<string>,
-    dataElements: Dictionary<Option>,
-    uniqueKey: string
-) => {
+    }>;
+    stages: Dictionary<IProgramStage>;
+    options: Dictionary<string>;
+    dataElements: Dictionary<Option>;
+    uniqueKey: string;
+}) => {
     let eventUpdates = [];
     let newEvents = [];
     let conflicts: any[] = [];
@@ -140,10 +139,10 @@ const processEvents = (
             geometryMerged = false,
             latitudeColumn = "",
             longitudeColumn = "",
-            stage,
+            createEmptyEvents,
+            completeEvents,
         } = info;
-
-        if ((createEvents || updateEvents) && eventDateColumn) {
+        if (createEvents || updateEvents || createEmptyEvents) {
             let uniqueColumns = Object.entries(elements).flatMap(
                 ([, { unique, value }]) => {
                     if (unique && value) {
@@ -166,10 +165,9 @@ const processEvents = (
                             .map((column) => {
                                 const value = getOr("", column, item);
                                 if (column === eventDateColumn && value) {
-                                    return format(
-                                        "yyyy-MM-dd",
-                                        parseISO(getOr("", column, item))
-                                    );
+                                    return dayjs(
+                                        getOr("", column, item)
+                                    ).format("YYYY-MM-DD");
                                 }
                                 return value;
                             })
@@ -205,7 +203,10 @@ const processEvents = (
                 });
 
                 if (event && !isEmpty(event.dataValues)) {
-                    const { dataValues, event: e, ...others } = event;
+                    let { dataValues, event: e, ...others } = event;
+                    if (completeEvents) {
+                        others = { ...others, status: "COMPLETED" };
+                    }
                     if (previousEvent) {
                         const { event, eventDate, ...rest } = previousEvent;
                         const difference = diff(rest, dataValues);
@@ -231,6 +232,7 @@ const processEvents = (
                         newEvents = newEvents.concat({
                             ...others,
                             event: e,
+                            status: "COMPLETED",
                             dataValues: Object.entries({
                                 ...dataValues,
                             }).map(([dataElement, value]) => ({
@@ -240,6 +242,15 @@ const processEvents = (
                         });
                     }
 
+                    if (!repeatable) {
+                        break;
+                    }
+                } else if (createEmptyEvents && isEmpty(stagePreviousEvents)) {
+                    const { dataValues, ...others } = event;
+                    newEvents = newEvents.concat({
+                        ...others,
+                        dataValues: [],
+                    });
                     if (!repeatable) {
                         break;
                     }
@@ -642,7 +653,12 @@ export const convertToDHIS2 = async ({
                 [key: string]: { [key: string]: any };
             }>
         >;
-        enrollments: Dictionary<string>;
+        enrollments: Dictionary<
+            {
+                enrollment: string;
+                enrollmentDate: string;
+            }[]
+        >;
         trackedEntities: Dictionary<string>;
         orgUnits: Dictionary<string>;
     };
@@ -738,13 +754,10 @@ export const convertToDHIS2 = async ({
             })
         );
     }
-
     const processed = Object.entries(groupedData).flatMap(
         ([uniqueKey, current]) => {
-            let currentConflicts: any[] = [];
-            let currentErrors: any[] = [];
             let results: {
-                enrollment: Partial<Enrollment>;
+                enrollments: Array<Partial<Enrollment>>;
                 trackedEntity: Partial<TrackedEntityInstance>;
                 events: Array<Partial<Event>>;
                 eventUpdates: Array<Partial<Event>>;
@@ -752,7 +765,7 @@ export const convertToDHIS2 = async ({
                 conflicts: any[];
                 errors: any[];
             } = {
-                enrollment: {},
+                enrollments: [],
                 trackedEntity: {},
                 events: [],
                 eventUpdates: [],
@@ -765,8 +778,8 @@ export const convertToDHIS2 = async ({
                 uniqueKey,
                 previousData.trackedEntities
             );
-            let previousEnrollment = getOr(
-                "",
+            let previousEnrollments = getOr(
+                [],
                 uniqueKey,
                 previousData.enrollments
             );
@@ -801,6 +814,11 @@ export const convertToDHIS2 = async ({
                 data: current[0],
                 uniqueKey,
             });
+            results = {
+                ...results,
+                errors: results.errors.concat(errors),
+                conflicts: results.conflicts.concat(conflicts),
+            };
 
             const destination = fromPairs(
                 previousAttributes.map(({ attribute, value }) => [
@@ -817,7 +835,7 @@ export const convertToDHIS2 = async ({
             if (
                 previousAttributes.length > 0 &&
                 updateEntities &&
-                currentErrors.length === 0
+                results.errors.length === 0
             ) {
                 if (!isEmpty(differences)) {
                     const attributes = Object.entries({
@@ -849,7 +867,7 @@ export const convertToDHIS2 = async ({
             } else if (
                 previousAttributes.length === 0 &&
                 createEntities &&
-                currentErrors.length === 0
+                results.errors.length === 0
             ) {
                 const currentUnit = getOr("", orgUnitColumn, current[0]);
                 previousOrgUnit = getOr("", currentUnit, flippedUnits);
@@ -885,124 +903,155 @@ export const convertToDHIS2 = async ({
                         };
                     }
                 } else {
-                    currentErrors = [
-                        ...currentErrors,
-                        {
+                    results = {
+                        ...results,
+                        errors: results.errors.concat({
                             value: `Missing equivalent mapping for organisation unit ${currentUnit}`,
                             attribute: `OrgUnit for ${uniqueKey}`,
-                        },
-                    ];
+                        }),
+                    };
                 }
             }
 
-            if (
-                previousOrgUnit &&
-                createEnrollments &&
-                isEmpty(previousEnrollment)
-            ) {
-                const enrollmentDate = parseISO(
-                    getOr("", enrollmentDateColumn, current[0])
+            if (results.errors.length === 0) {
+                const groupedByEnrollmentDate = groupBy(
+                    enrollmentDateColumn,
+                    current
                 );
-                const incidentDate = parseISO(
-                    getOr("", incidentDateColumn, current[0])
-                );
-                if (isValid(enrollmentDate) && isValid(incidentDate)) {
-                    let dateAreValid = true;
 
+                for (const [eDate, enrollmentData] of Object.entries(
+                    groupedByEnrollmentDate
+                )) {
+                    let previousEnrollment:
+                        | { enrollment: string; enrollmentDate: string }
+                        | undefined = previousEnrollments.find(
+                        (a) => a.enrollmentDate === eDate
+                    );
                     if (
-                        !selectEnrollmentDatesInFuture &&
-                        isFuture(enrollmentDate)
+                        previousOrgUnit &&
+                        createEnrollments &&
+                        isEmpty(previousEnrollment)
                     ) {
-                        dateAreValid = false;
-                        currentErrors = [
-                            ...currentErrors,
-                            {
-                                value: `Date ${format(
-                                    "yyyy-MM-dd",
-                                    enrollmentDate
-                                )} is in the future`,
-                                attribute: `Enrollment date for ${uniqueKey}`,
-                            },
-                        ];
-                    }
+                        const enrollmentDate = dayjs(eDate);
+                        const incidentDate = dayjs(
+                            getOr("", incidentDateColumn, enrollmentData[0])
+                        );
+                        if (
+                            enrollmentDate.isValid() &&
+                            incidentDate.isValid()
+                        ) {
+                            let dateAreValid = true;
+                            if (
+                                !selectEnrollmentDatesInFuture &&
+                                enrollmentDate.isAfter(dayjs())
+                            ) {
+                                dateAreValid = false;
 
-                    if (
-                        !selectIncidentDatesInFuture &&
-                        isFuture(incidentDate)
-                    ) {
-                        dateAreValid = false;
-                        currentErrors = [
-                            ...currentErrors,
-                            {
-                                value: `Date ${format(
-                                    "yyyy-MM-dd",
-                                    incidentDate
-                                )} is in the future`,
-                                attribute: `Incident date for ${uniqueKey}`,
-                            },
-                        ];
-                    }
-                    if (dateAreValid) {
-                        previousEnrollment = generateUid();
-                        let currentEnrollment: Partial<Enrollment> = {
-                            program: mapping.program.program,
-                            trackedEntityInstance: previousTrackedEntity,
-                            orgUnit: previousOrgUnit,
-                            enrollmentDate: format(
-                                "yyyy-MM-dd",
-                                enrollmentDate
-                            ),
-                            incidentDate: format("yyyy-MM-dd", incidentDate),
-                            enrollment: previousEnrollment,
-                        };
-                        if (!isEmpty(enrollmentGeometry)) {
-                            currentEnrollment = {
-                                ...currentEnrollment,
-                                geometry: enrollmentGeometry,
+                                results = {
+                                    ...results,
+                                    errors: results.errors.concat({
+                                        value: `Date ${enrollmentDate.format(
+                                            "YYYY-MM-DD"
+                                        )} is in the future`,
+                                        attribute: `Enrollment date for ${uniqueKey}`,
+                                    }),
+                                };
+                            }
+
+                            if (
+                                !selectIncidentDatesInFuture &&
+                                incidentDate.isAfter(dayjs())
+                            ) {
+                                dateAreValid = false;
+
+                                results = {
+                                    ...results,
+                                    errors: results.errors.concat({
+                                        value: `Date ${incidentDate.format(
+                                            "YYYY-MM-DD"
+                                        )} is in the future`,
+                                        attribute: `Incident date for ${uniqueKey}`,
+                                    }),
+                                };
+                            }
+                            if (dateAreValid) {
+                                previousEnrollment = {
+                                    enrollment: generateUid(),
+                                    enrollmentDate:
+                                        enrollmentDate.format("YYYY-MM-DD"),
+                                };
+                                let currentEnrollment: Partial<Enrollment> = {
+                                    program: mapping.program.program,
+                                    trackedEntityInstance:
+                                        previousTrackedEntity,
+                                    orgUnit: previousOrgUnit,
+                                    enrollmentDate:
+                                        enrollmentDate.format("YYYY-MM-DD"),
+                                    incidentDate:
+                                        enrollmentDate.format("YYYY-MM-DD"),
+                                    enrollment: previousEnrollment.enrollment,
+                                };
+                                if (!isEmpty(enrollmentGeometry)) {
+                                    currentEnrollment = {
+                                        ...currentEnrollment,
+                                        geometry: enrollmentGeometry,
+                                    };
+                                }
+                                results = {
+                                    ...results,
+                                    enrollments:
+                                        results.enrollments.concat(
+                                            currentEnrollment
+                                        ),
+                                };
+                            }
+                        } else {
+                            results = {
+                                ...results,
+                                errors: results.errors.concat({
+                                    value: "Missing",
+                                    attribute:
+                                        "enrollment date and/or incident date",
+                                }),
                             };
                         }
+                    }
+
+                    if (
+                        previousOrgUnit &&
+                        previousEnrollment &&
+                        previousEnrollment.enrollment &&
+                        previousEnrollment.enrollmentDate &&
+                        previousTrackedEntity
+                    ) {
+                        const { eventUpdates, newEvents } = processEvents({
+                            data: enrollmentData,
+                            programStageMapping,
+                            trackedEntityInstance: previousTrackedEntity,
+                            enrollment: previousEnrollment,
+                            orgUnit: previousOrgUnit,
+                            program: mapping.program.program || "",
+                            previousEvents: getOr(
+                                {},
+                                uniqueKey,
+                                previousData.dataElements
+                            ),
+                            stages,
+                            options: flippedOptions,
+                            dataElements: allElements,
+                            uniqueKey,
+                        });
+
                         results = {
                             ...results,
-                            enrollment: currentEnrollment,
+                            events: results.events.concat(newEvents),
+                            eventUpdates:
+                                results.eventUpdates.concat(eventUpdates),
+                            conflicts: results.conflicts.concat(conflicts),
+                            errors: results.errors.concat(errors),
                         };
                     }
-                } else {
-                    currentErrors = [
-                        ...currentErrors,
-                        {
-                            value: "Missing",
-                            attribute: "enrollment date and/or incident date",
-                        },
-                    ];
                 }
-            }
-
-            if (
-                previousOrgUnit &&
-                previousEnrollment &&
-                previousTrackedEntity
-            ) {
-                const { eventUpdates, newEvents } = processEvents(
-                    current,
-                    programStageMapping,
-                    previousTrackedEntity,
-                    previousEnrollment,
-                    previousOrgUnit,
-                    mapping.program.program || "",
-                    getOr({}, uniqueKey, previousData.dataElements),
-                    stages,
-                    flippedOptions,
-                    allElements,
-                    uniqueKey
-                );
-
-                results = {
-                    ...results,
-                    events: newEvents,
-                    eventUpdates,
-                    conflicts: [...currentConflicts, ...conflicts],
-                    errors: [...currentErrors, ...errors],
-                };
             }
 
             return {
@@ -1018,22 +1067,17 @@ export const convertToDHIS2 = async ({
         return [];
     });
 
-    const enrollments = processed.flatMap(({ enrollment }) => {
-        if (!isEmpty(enrollment)) return enrollment;
-        return [];
-    });
+    const enrollments = processed.flatMap(({ enrollments }) => enrollments);
     const errors = processed.flatMap(({ errors }) => errors);
     const conflicts = processed.flatMap(({ conflicts }) => conflicts);
-    const events = processed.flatMap(({ events }) => events.flat());
+    const events = processed.flatMap(({ events }) => events);
     const trackedEntityInstanceUpdates = processed.flatMap(
         ({ trackedEntityUpdate }) => {
             if (!isEmpty(trackedEntityUpdate)) return trackedEntityUpdate;
             return [];
         }
     );
-    const eventUpdates = processed.flatMap(({ eventUpdates }) =>
-        eventUpdates.flat()
-    );
+    const eventUpdates = processed.flatMap(({ eventUpdates }) => eventUpdates);
     return {
         trackedEntityInstances,
         events,
@@ -1051,18 +1095,20 @@ export const processPreviousInstances = ({
     programStageUniqueElements,
     currentProgram,
     trackedEntityIdIdentifiesInstance,
-    eventIdIdentifiesEvent,
+    programStageMapping,
 }: Partial<{
     trackedEntityInstances: Array<Partial<TrackedEntityInstance>>;
     programUniqAttributes: string[];
     programStageUniqueElements: Dictionary<string[]>;
     currentProgram: string;
     trackedEntityIdIdentifiesInstance: boolean;
-    eventIdIdentifiesEvent: boolean;
+    programStageMapping: Record<string, Mapping>;
 }>) => {
     let currentAttributes: Array<[string, any]> = [];
     let currentElements: Array<[string, any]> = [];
-    let currentEnrollments: Array<[string, string]> = [];
+    let currentEnrollments: Array<
+        [string, Array<{ enrollment: string; enrollmentDate: string }>]
+    > = [];
     let currentTrackedEntities: Array<[string, string]> = [];
     let currentOrgUnits: Array<[string, string]> = [];
 
@@ -1070,7 +1116,10 @@ export const processPreviousInstances = ({
         trackedEntityInstances.forEach(
             ({ enrollments, attributes, trackedEntityInstance, orgUnit }) => {
                 const allAttributes = attributes.concat(
-                    enrollments.flatMap(({ attributes }) => attributes),
+                    enrollments.flatMap(({ attributes, program }) => {
+                        if (program === currentProgram) return attributes;
+                        return [];
+                    }),
                     {
                         attribute: "trackedEntityInstance",
                         value: trackedEntityInstance,
@@ -1099,7 +1148,7 @@ export const processPreviousInstances = ({
                 ]);
                 currentAttributes.push([
                     attributeKey,
-                    attributes.map(({ attribute, value }) => ({
+                    allAttributes.map(({ attribute, value }) => ({
                         attribute,
                         value,
                     })),
@@ -1107,69 +1156,83 @@ export const processPreviousInstances = ({
                 currentOrgUnits.push([attributeKey, String(orgUnit)]);
 
                 if (enrollments.length > 0) {
-                    const previousEnrollment = enrollments.find(
+                    const previousEnrollment = enrollments.filter(
                         ({ program }: any) => program === currentProgram
                     );
-                    if (previousEnrollment) {
-                        const { events, enrollment } = previousEnrollment;
+                    if (previousEnrollment.length > 0) {
                         currentEnrollments.push([
                             attributeKey,
-                            String(enrollment),
+                            previousEnrollment.map(
+                                ({ enrollment, enrollmentDate }) => ({
+                                    enrollment,
+                                    enrollmentDate,
+                                })
+                            ),
                         ]);
-                        const groupedEvents = groupBy("programStage", events);
+                        const groupedEvents = groupBy(
+                            "programStage",
+                            previousEnrollment.flatMap(({ events }) => events)
+                        );
                         const uniqueEvents = Object.entries(
                             groupedEvents
                         ).flatMap(([stage, availableEvents]) => {
                             const stageElements =
                                 programStageUniqueElements[stage];
-                            const elements = availableEvents.map((event) => {
-                                if (event.eventDate) {
-                                    const finalValues = [
-                                        ...event.dataValues,
-                                        {
-                                            dataElement: "eventDate",
-                                            value: format(
-                                                "yyyy-MM-dd",
-                                                parseISO(event.eventDate)
-                                            ),
-                                        },
-                                        {
-                                            dataElement: "event",
-                                            value: event.event,
-                                        },
-                                    ].map(({ dataElement, value }) => [
-                                        dataElement,
-                                        value,
-                                    ]);
+                            const mapping = programStageMapping[stage];
 
-                                    let dataElementKey = finalValues
-                                        .flatMap(([dataElement, value]) => {
-                                            if (
-                                                dataElement &&
-                                                stageElements &&
-                                                stageElements.indexOf(
-                                                    dataElement
-                                                ) !== -1
-                                            ) {
-                                                return value;
+                            if (mapping) {
+                                const elements = availableEvents.map(
+                                    (event) => {
+                                        if (event.eventDate) {
+                                            const finalValues = [
+                                                ...event.dataValues,
+                                                {
+                                                    dataElement: "eventDate",
+                                                    value: dayjs(
+                                                        event.eventDate
+                                                    ).format("YYYY-MM-DD"),
+                                                },
+                                                {
+                                                    dataElement: "event",
+                                                    value: event.event,
+                                                },
+                                            ].map(({ dataElement, value }) => [
+                                                dataElement,
+                                                value,
+                                            ]);
+
+                                            let dataElementKey = finalValues
+                                                .flatMap(
+                                                    ([dataElement, value]) => {
+                                                        if (
+                                                            dataElement &&
+                                                            stageElements &&
+                                                            stageElements.indexOf(
+                                                                dataElement
+                                                            ) !== -1
+                                                        ) {
+                                                            return value;
+                                                        }
+                                                        return [];
+                                                    }
+                                                )
+                                                .sort()
+                                                .join("");
+                                            if (mapping.info.eventIdColumn) {
+                                                dataElementKey = event.event;
                                             }
-                                            return [];
-                                        })
-                                        .sort()
-                                        .join("");
 
-                                    if (eventIdIdentifiesEvent) {
-                                        dataElementKey = event.event;
+                                            return [
+                                                dataElementKey,
+                                                fromPairs(finalValues),
+                                            ];
+                                        }
+                                        return [];
                                     }
-
-                                    return [
-                                        dataElementKey,
-                                        fromPairs(finalValues),
-                                    ];
-                                }
-                                return [];
-                            });
-                            return [[stage, fromPairs(elements)]];
+                                );
+                                return [[stage, fromPairs(elements)]];
+                            }
+                            return [];
                         });
                         currentElements.push([
                             attributeKey,
@@ -1180,92 +1243,72 @@ export const processPreviousInstances = ({
             }
         );
     }
-
     return {
-        attributes:
-            fromPairs<Array<{ attribute: string; value: string }>>(
-                currentAttributes
-            ),
-        dataElements: fromPairs<
-            Dictionary<{
-                [key: string]: { [key: string]: any };
-            }>
-        >(currentElements),
-        enrollments: fromPairs<string>(currentEnrollments),
-        trackedEntities: fromPairs<string>(currentTrackedEntities),
-        orgUnits: fromPairs<string>(currentOrgUnits),
+        attributes: fromPairs(currentAttributes),
+        dataElements: fromPairs(currentElements),
+        enrollments: fromPairs(currentEnrollments),
+        trackedEntities: fromPairs(currentTrackedEntities),
+        orgUnits: fromPairs(currentOrgUnits),
     };
 };
-
-// const flattenEvent = (event: Partial<Event>): Partial<FlattenedEvent> => {
-//     if (event) {
-//         const { dataValues, programStage, enrollment, ...rest } = event;
-//         return {
-//             [programStage]: {
-//                 ...rest,
-//                 programStage,
-//                 values: fromPairs(
-//                     dataValues.map(({ dataElement, value }) => [
-//                         dataElement,
-//                         value,
-//                     ])
-//                 ),
-//             },
-//         };
-//     }
-//     return {};
-// };
-
-// export const flattenEvents = (
-//     events: Array<Partial<Event>>
-// ): Array<Partial<FlattenedInstance>> =>
-//     events.map((e) => ({ last: flattenEvent(e) }));
 
 export const flattenTrackedEntityInstances = (
     response: {
         trackedEntityInstances: Array<Partial<TrackedEntityInstance>>;
     },
     flatteningOption: "ALL" | "LAST" | "FIRST"
-): Array<Partial<FlattenedInstance>> => {
+) => {
     return response.trackedEntityInstances.flatMap(
         ({ attributes, enrollments, ...otherAttributes }) => {
-            const attributeValues = fromPairs(
-                attributes.map(({ attribute, value }) => [attribute, value])
-            );
-            const current: Partial<FlattenedInstance> = {
+            let current: Record<string, any> = {
                 ...otherAttributes,
-                attribute: attributeValues,
+                ...fromPairs(
+                    attributes.map(({ attribute, value }) => [attribute, value])
+                ),
             };
             if (enrollments.length > 0) {
-                const [{ events, ...enrollmentData }] = enrollments;
-                current.enrollment = enrollmentData;
-                let validEvents: Array<Partial<FlattenedInstance>> = [];
-                for (const [stage, availableEvents] of Object.entries(
-                    groupBy("programStage", events)
-                )) {
-                    if (flatteningOption === "ALL") {
-                        validEvents = validEvents.concat(
-                            flattenEvents(availableEvents, current)
-                        );
-                    } else if (flatteningOption === "FIRST") {
-                        validEvents = validEvents.concat(
-                            flattenEvents(
-                                [minBy(availableEvents, "eventDate")],
-                                current
-                            )
-                        );
-                    } else {
-                        validEvents = validEvents.concat(
-                            flattenEvents(
-                                [maxBy(availableEvents, "eventDate")],
-                                current
-                            )
-                        );
+                return enrollments.flatMap(
+                    ({ events, program, attributes, ...enrollmentData }) => {
+                        current = {
+                            ...current,
+                            ...fromPairs(
+                                attributes.map(({ attribute, value }) => [
+                                    attribute,
+                                    value,
+                                ])
+                            ),
+                            enrollment: enrollmentData,
+                        };
+                        if (events && events.length > 0) {
+                            return Object.entries(
+                                groupBy("programStage", events)
+                            ).flatMap(([_, availableEvents]) => {
+                                if (flatteningOption === "ALL") {
+                                    return flattenEvents(availableEvents, {
+                                        [current.trackedEntityInstance]:
+                                            current,
+                                    });
+                                } else if (flatteningOption === "FIRST") {
+                                    return flattenEvents(
+                                        [minBy(availableEvents, "eventDate")],
+                                        {
+                                            [current.trackedEntityInstance]:
+                                                current,
+                                        }
+                                    );
+                                } else {
+                                    return flattenEvents(
+                                        [maxBy(availableEvents, "eventDate")],
+                                        {
+                                            [current.trackedEntityInstance]:
+                                                current,
+                                        }
+                                    );
+                                }
+                            });
+                        }
                     }
-                }
-                if (validEvents.length > 0) {
-                    return validEvents;
-                }
+                );
             }
             return current;
         }
@@ -1554,23 +1597,41 @@ export const programUniqColumns = (attributeMapping: Mapping): string[] => {
 
 export const flattenEvents = (
     events: Array<Partial<Event>>,
-    additional: Partial<FlattenedInstance>
+    trackedEntityInstances?: Record<string, any>
 ) => {
-    return events.map(({ dataValues, programStage, ...rest }) => {
-        return {
-            ...additional,
-            [programStage]: {
-                ...rest,
-                programStage,
-                values: fromPairs(
-                    dataValues.map(({ dataElement, value }) => [
-                        dataElement,
-                        value,
-                    ])
-                ),
-            },
-        };
-    });
+    return events.map(
+        ({
+            dataValues,
+            enrollment,
+            programStage,
+            trackedEntityInstance,
+            program,
+            ...rest
+        }) => {
+            const obj = {
+                [programStage]: {
+                    ...fromPairs(
+                        dataValues.map(({ dataElement, value }) => [
+                            dataElement,
+                            value,
+                        ])
+                    ),
+                    ...rest,
+                },
+            };
+            if (
+                trackedEntityInstances &&
+                trackedEntityInstances[trackedEntityInstance]
+            ) {
+                return {
+                    ...obj,
+                    ...trackedEntityInstances[trackedEntityInstance],
+                };
+            }
+
+            return obj;
+        }
+    );
 };
 
 export const programStageUniqColumns = (
@@ -1604,7 +1665,7 @@ export const programStageUniqElements = (
     const uniqElements = Object.entries(programStageMapping).map(
         ([stage, mapping]) => {
             const { info, ...elements } = mapping;
-            const eventDateIsUnique = info.customDueDateColumn;
+            const { uniqueEventDate } = info;
             let uniqueColumns = Object.entries(elements).flatMap(
                 ([element, { unique, value }]) => {
                     if (unique && value) {
@@ -1613,7 +1674,7 @@ export const programStageUniqElements = (
                     return [];
                 }
             );
-            if (eventDateIsUnique) {
+            if (uniqueEventDate) {
                 uniqueColumns = [...uniqueColumns, "eventDate"];
             }
 
@@ -1990,7 +2051,7 @@ export const flattenProgram = (program: Partial<IProgram>) => {
             }) => {
                 const option: Option = {
                     label: name,
-                    value: `attribute.${id}`,
+                    value: id,
                     optionSetValue,
                     availableOptions:
                         optionSet?.options.map(({ code, id, name }) => ({
@@ -2011,7 +2072,7 @@ export const flattenProgram = (program: Partial<IProgram>) => {
                     }) => {
                         return {
                             label: `${stageName}-${name}`,
-                            value: `${stageId}.values.${id}`,
+                            value: `${stageId}.${id}`,
                             optionSetValue: optionSetValue || false,
                             id,
                             availableOptions:
@@ -2085,96 +2146,126 @@ export const flattenProgram = (program: Partial<IProgram>) => {
     return [];
 };
 
-const fetchStageEvents = async (
-    api: Partial<{ engine: any; axios: AxiosInstance }>,
-    programStage: string,
-    program: string,
-    pageSize: number,
-    others: { [key: string]: string } = {}
-) => {
+export const fetchStageEvents = async ({
+    api,
+    programStage,
+    others = {},
+    pageSize = 50,
+    afterFetch,
+    fetchInstances = true,
+    program,
+}: {
+    api: Partial<{ engine: any; axios: AxiosInstance }>;
+    programStage: string;
+    pageSize?: number;
+    others?: { [key: string]: string };
+    afterFetch: (
+        trackedEntityInstances: Array<Partial<TrackedEntityInstance>>
+    ) => Promise<void> | void;
+    fetchInstances?: boolean;
+    program: string;
+}) => {
     let page = 1;
     let currentEvents = 0;
-    let allEvents: Array<Partial<Event>> = [];
     do {
-        const params = new URLSearchParams({
-            ouMode: "ALL",
+        let params: { [key: string]: string } = {
             programStage,
-            program,
             pageSize: String(pageSize),
             page: String(page),
             ...others,
-        });
+        };
+
+        if (params.orgUnit) {
+            params = { ...params, ouMode: "DESCENDANTS" };
+        } else {
+            params = { ...params, ouMode: "ALL" };
+        }
 
         console.log(`Querying page ${page}`);
+        let workingEvents: Array<Partial<Event>> = [];
 
         if (api.engine) {
             const {
                 data: { events },
             }: any = await api.engine.query({
                 data: {
-                    resource: `events.json?${params.toString()}`,
+                    resource: `events.json?${new URLSearchParams(
+                        params
+                    ).toString()}`,
                 },
             });
-            allEvents = [...allEvents, ...events];
+            workingEvents = events;
             currentEvents = events.length;
         } else if (api.axios) {
             const {
                 data: { events },
             } = await api.axios.get<{
                 events: Event[];
-            }>(`events.json?${params.toString()}`);
-            allEvents = [...allEvents, ...events];
+            }>(`events.json?${new URLSearchParams(params).toString()}`);
+            workingEvents = events;
             currentEvents = events.length;
+        }
+        if (fetchInstances) {
+            const ids = workingEvents.map(
+                ({ trackedEntityInstance }) => trackedEntityInstance
+            );
+            const instances = await fetchTrackedEntityInstancesByIds({
+                api,
+                ids,
+                program,
+                fields: "created,orgUnit,createdAtClient,trackedEntityInstance,lastUpdated,trackedEntityType,lastUpdatedAtClient,potentialDuplicate,inactive,deleted,featureType,programOwners,relationships[*],attributes[*],enrollments[storedBy,createdAtClient,program,lastUpdated,created,orgUnit,enrollment,trackedEntityInstance,trackedEntityType,lastUpdatedAtClient,orgUnitName,enrollmentDate,deleted,incidentDate,status,attributes[*]]",
+            });
+
+            const events = groupBy((a) => {
+                return `${a.trackedEntityInstance}${a.enrollment}`;
+            }, workingEvents);
+
+            await afterFetch(
+                instances.map((e) => ({
+                    ...e,
+                    enrollments: [
+                        ...e.enrollments.map((enrollment) => ({
+                            ...enrollment,
+                            events: events[
+                                `${e.trackedEntityInstance}${enrollment.enrollment}`
+                            ],
+                        })),
+                    ],
+                }))
+            );
+        } else {
+            await afterFetch([{ enrollments: [{ events: workingEvents }] }]);
         }
         page = page + 1;
     } while (currentEvents > 0);
-    return allEvents;
 };
 
-export const fetchEvents = async (
-    api: Partial<{ engine: any; axios: AxiosInstance }>,
-    programStages: string[],
-    pageSize: number,
-    program: string,
-    others: { [key: string]: string } = {}
-): Promise<Array<Partial<TrackedEntityInstance>>> => {
-    let allEvents: Array<Partial<Event>> = [];
+export const fetchEvents = async ({
+    api,
+    programStages,
+    pageSize,
+    others = {},
+    program,
+    afterFetch,
+}: {
+    api: Partial<{ engine: any; axios: AxiosInstance }>;
+    programStages: string[];
+    pageSize: number;
+    program: string;
+    others: { [key: string]: string };
+    afterFetch: (
+        events: Array<Partial<TrackedEntityInstance>>
+    ) => Promise<void> | void;
+}) => {
     for (const programStage of programStages) {
-        const currentEvents = await fetchStageEvents(
+        await fetchStageEvents({
             api,
             programStage,
-            program,
             pageSize,
-            others
-        );
-        allEvents = [...allEvents, ...currentEvents];
-    }
-
-    const grouped = groupBy("trackedEntityInstance", allEvents);
-
-    const keys = Object.keys(grouped).filter((k) => !isEmpty(k));
-
-    if (keys.length > 0) {
-        const entities = await fetchTrackedEntityInstancesByIds(
-            api,
+            others,
+            afterFetch: afterFetch,
             program,
-            keys
-        );
-
-        return entities.map((instance) => {
-            const events = grouped[instance.trackedEntityInstance];
-            return {
-                ...instance,
-                enrollments: instance.enrollments?.map((e) => ({
-                    ...e,
-                    events,
-                })),
-            };
         });
-    } else {
-        return allEvents.map((events) => ({
-            enrollments: [{ events: [events] }],
-        }));
     }
 };
 
@@ -2239,9 +2330,7 @@ export const queryTrackedEntityInstances = async (
             );
         }
         return { trackedEntityInstances: currentInstances };
-    }
-
-    if (isArray(params) && api.axios) {
+    } else if (isArray(params) && api.axios) {
         const allQueries = await Promise.all(
             params.map((currentParam) =>
                 api.axios.get<
@@ -2274,18 +2363,17 @@ export const queryTrackedEntityInstances = async (
             );
         }
         return { trackedEntityInstances: currentInstances };
-    }
-
-    if (api.engine) {
+    } else if (api.engine) {
+        console.log("We are here again");
+        console.log(params.toString());
         const { data }: any = await api.engine.query({
             data: {
                 resource: `trackedEntityInstances.json?${params.toString()}`,
             },
         });
+        console.log(data);
         return data;
-    }
-
-    if (api.axios) {
+    } else if (api.axios) {
         const { data } = await api.axios.get<
             Partial<{
                 pager: {
@@ -2349,14 +2437,16 @@ export const fetchTrackedEntityInstances = async (
             };
         }>
     ) => Promise<any> = undefined
-) => {
+): Promise<{
+    trackedEntityInstances: Array<Partial<TrackedEntityInstance>>;
+}> => {
     let foundInstances: Array<Partial<TrackedEntityInstance>> = [];
     if (trackedEntityInstances.length > 0) {
-        const data = await fetchTrackedEntityInstancesByIds(
+        const data = await fetchTrackedEntityInstancesByIds({
             api,
             program,
-            trackedEntityInstances
-        );
+            ids: trackedEntityInstances,
+        });
 
         if (callback) {
             await callback(data, {});
@@ -2391,6 +2481,9 @@ export const fetchTrackedEntityInstances = async (
             if (!additionalParams["ou"]) {
                 params.append("ouMode", "ALL");
             }
+            if (additionalParams["ou"]) {
+                params.append("ouMode", "DESCENDANTS");
+            }
             const { trackedEntityInstances } =
                 await queryTrackedEntityInstances(api, params);
             const joinedInstances = joinAttributes(
@@ -2417,7 +2510,6 @@ export const fetchTrackedEntityInstances = async (
         uniqueAttributeValues.length > 0 &&
         numberOfUniqAttribute > 1
     ) {
-        console.log("We are in searching");
         let page = 1;
         const chunkedData = chunk(Number(pageSize), uniqueAttributeValues);
         for (const attributeValues of chunkedData) {
@@ -2435,6 +2527,10 @@ export const fetchTrackedEntityInstances = async (
                 params.append("skipPaging", "true");
                 if (!additionalParams["ou"]) {
                     params.append("ouMode", "ALL");
+                }
+
+                if (additionalParams["ou"]) {
+                    params.append("ouMode", "DESCENDANTS");
                 }
                 return queryTrackedEntityInstances(api, params);
             });
@@ -2463,7 +2559,6 @@ export const fetchTrackedEntityInstances = async (
             page = page + 1;
         }
     } else if (!withAttributes) {
-        console.log("We are in attributes");
         let page = 1;
         let params: { [key: string]: string } = {
             fields,
@@ -2479,6 +2574,10 @@ export const fetchTrackedEntityInstances = async (
         if (!additionalParams["ou"] && !additionalParams["ouMode"]) {
             params = { ...params, ouMode: "ALL" };
         }
+        if (additionalParams["ou"]) {
+            params = { ...params, ouMode: "DESCENDANTS" };
+        }
+
         const { pager, trackedEntityInstances } =
             await queryTrackedEntityInstances(
                 api,
@@ -2524,17 +2623,23 @@ export const fetchTrackedEntityInstances = async (
     return { trackedEntityInstances: foundInstances };
 };
 
-export const fetchTrackedEntityInstancesByIds = async (
-    api: Partial<{ engine: any; axios: AxiosInstance }>,
-    program: string,
-    ids: string[]
-) => {
+export const fetchTrackedEntityInstancesByIds = async ({
+    api,
+    program,
+    ids,
+    fields = "*",
+}: {
+    api: Partial<{ engine: any; axios: AxiosInstance }>;
+    program: string;
+    ids: string[];
+    fields?: string;
+}) => {
     let instances: Array<Partial<TrackedEntityInstance>> = [];
     if (ids.length > 0) {
         for (const c of chunk(50, ids)) {
             const params = new URLSearchParams({
                 trackedEntityInstance: `${c.join(";")}`,
-                fields: "*",
+                fields,
                 skipPaging: "true",
                 program,
                 ouMode: "ALL",
@@ -3143,14 +3248,24 @@ export const getPreviousProgramMapping = async (
 
     callBack("Loading program for saved mapping");
 
-    let program = {};
+    let program: Partial<IProgram> = {};
+    let remoteProgram: Partial<IProgram> = {};
 
     if (mapping.program && mapping.program.program) {
-        program = await loadProgram<IProgram>({
+        program = await loadProgram<Partial<IProgram>>({
             api,
             resource: "programs",
             id: mapping.program.program,
-            fields: "id,name,trackedEntityType[id,featureType],programType,featureType,organisationUnits[id,code,name,parent[name,parent[name,parent[name,parent[name,parent[name]]]]]],programStages[id,repeatable,featureType,name,code,programStageDataElements[id,compulsory,name,dataElement[id,name,code,optionSetValue,optionSet[id,name,options[id,name,code]]]]],programTrackedEntityAttributes[id,mandatory,sortOrder,allowFutureDate,trackedEntityAttribute[id,name,code,unique,generated,pattern,confidential,valueType,optionSetValue,displayFormName,optionSet[id,name,options[id,name,code]]]]",
+            fields: "id,name,trackedEntityType[id,featureType],programType,featureType,selectEnrollmentDatesInFuture,selectIncidentDatesInFuture,organisationUnits[id,code,name,parent[name,parent[name,parent[name,parent[name,parent[name]]]]]],programStages[id,repeatable,featureType,name,code,programStageDataElements[id,compulsory,name,dataElement[id,name,code,optionSetValue,optionSet[id,name,options[id,name,code]]]]],programTrackedEntityAttributes[id,mandatory,sortOrder,allowFutureDate,trackedEntityAttribute[id,name,code,unique,generated,pattern,confidential,valueType,optionSetValue,displayFormName,optionSet[id,name,options[id,name,code]]]]",
+        });
+    }
+
+    if (mapping.program && mapping.program.remoteProgram) {
+        remoteProgram = await loadProgram<Partial<IProgram>>({
+            api,
+            resource: "programs",
+            id: mapping.program.remoteProgram,
+            fields: "id,name,trackedEntityType[id,featureType],programType,featureType,selectEnrollmentDatesInFuture,selectIncidentDatesInFuture,organisationUnits[id,code,name,parent[name,parent[name,parent[name,parent[name,parent[name]]]]]],programStages[id,repeatable,featureType,name,code,programStageDataElements[id,compulsory,name,dataElement[id,name,code,optionSetValue,optionSet[id,name,options[id,name,code]]]]],programTrackedEntityAttributes[id,mandatory,sortOrder,allowFutureDate,trackedEntityAttribute[id,name,code,unique,generated,pattern,confidential,valueType,optionSetValue,displayFormName,optionSet[id,name,options[id,name,code]]]]",
         });
     }
     return {
@@ -3159,5 +3274,53 @@ export const getPreviousProgramMapping = async (
         organisationUnitMapping,
         optionMapping,
         program,
+        remoteProgram,
+    };
+};
+
+export const getPreviousAggregateMapping = async (
+    api: Partial<{ engine: any; axios: AxiosInstance }>,
+    mapping: Partial<IMapping>,
+    callBack: (message: string) => void
+) => {
+    callBack("Fetching saved mapping");
+    const previousMappings = await loadPreviousMapping(
+        api,
+        ["iw-ou-mapping", "iw-attribute-mapping", "iw-attribution-mapping"],
+        mapping.id ?? ""
+    );
+    const attributeMapping: Mapping =
+        previousMappings["iw-attribute-mapping"] || {};
+    const organisationUnitMapping: Mapping =
+        previousMappings["iw-ou-mapping"] || {};
+    const attributionMapping: Mapping =
+        previousMappings["iw-attribution-mapping"] || {};
+
+    let dataSet: Partial<IDataSet> = {};
+    let remoteDataSet: Partial<IDataSet> = {};
+    if (mapping.aggregate?.dataSet) {
+        callBack("Loading data set for saved mapping");
+        dataSet = await loadProgram<Partial<IDataSet>>({
+            api,
+            resource: "dataSets",
+            id: mapping.aggregate.dataSet,
+            fields: "id,name,code,organisationUnits[id,name,code],categoryCombo[categories[id,name,code,categoryOptions[id,name,code]],categoryOptionCombos[code,name,id,categoryOptions[id,name,code]]],dataSetElements[dataElement[id,name,code,categoryCombo[categories[id,name,code,categoryOptions[id,name,code]],categoryOptionCombos[code,name,id,categoryOptions[id,name,code]]]]]",
+        });
+    }
+
+    if (mapping.aggregate && mapping.aggregate.remote) {
+        remoteDataSet = await loadProgram<Partial<IDataSet>>({
+            api,
+            resource: "dataSets",
+            id: mapping.aggregate.remote,
+            fields: "id,name,code,organisationUnits[id,name,code],categoryCombo[categories[id,name,code,categoryOptions[id,name,code]],categoryOptionCombos[code,name,id,categoryOptions[id,name,code]]],dataSetElements[dataElement[id,name,code,categoryCombo[categories[id,name,code,categoryOptions[id,name,code]],categoryOptionCombos[code,name,id,categoryOptions[id,name,code]]]]]",
+        });
+    }
+    return {
+        attributeMapping,
+        organisationUnitMapping,
+        dataSet,
+        attributionMapping,
+        remoteDataSet,
     };
 };

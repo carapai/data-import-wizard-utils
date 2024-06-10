@@ -45,6 +45,7 @@ export interface INamed {
 export interface DHIS2DestinationOptions {
     chunkSize: number;
     async: boolean;
+    completeDataSet: boolean;
 }
 
 export interface DHIS2SourceOptions {
@@ -324,6 +325,7 @@ export interface RealMapping {
     customDueDateColumn: boolean;
     customEventDateColumn: boolean;
     customEventIdColumn: boolean;
+    createEmptyEvents: boolean;
     unique: boolean;
     createEvents: boolean;
     updateEvents: boolean;
@@ -690,21 +692,18 @@ export interface ISchedule {
     url: string;
 }
 
-export interface FlattenedEvent {
-    [key: string]: Partial<
-        Omit<Event, "dataValues"> & { values: { [key: string]: string } }
-    >;
-}
-
 export type FlattenedEnrollment = Omit<Enrollment, "events">;
 
 export type FlattenedInstance = Omit<
     TrackedEntityInstance,
     "attributes" | "events" | "enrollments"
-> & {
-    attribute: Dictionary<string>;
-    enrollment: Partial<FlattenedEnrollment>;
-};
+> &
+    Record<string, string> & {
+        enrollment: Partial<FlattenedEnrollment>;
+    };
+
+export type FlattenedEvent = FlattenedInstance &
+    Record<string, Omit<Event, "dataValues"> & Record<string, string>>;
 
 export interface IGoDataData {
     firstName: string;
@@ -1048,6 +1047,7 @@ export type PartialEvent = Partial<{
     event: string;
     dataValues: Dictionary<string>;
     geometry: any;
+    status: string;
 }>;
 
 export type OtherProcessed = {
