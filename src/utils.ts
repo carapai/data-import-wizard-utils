@@ -1,5 +1,11 @@
 import axios, { AxiosInstance } from "axios";
-import dayjs from "dayjs";
+import dayjs, { Dayjs } from "dayjs";
+import advancedFormat from "dayjs/plugin/advancedFormat";
+import isoWeek from "dayjs/plugin/isoWeek";
+import localeData from "dayjs/plugin/localeData";
+import updateLocale from "dayjs/plugin/updateLocale";
+import weekday from "dayjs/plugin/weekday";
+import weekOfYear from "dayjs/plugin/weekOfYear";
 import { diff } from "jiff";
 import {
     Dictionary,
@@ -20,15 +26,17 @@ import {
     max,
     set,
 } from "lodash/fp";
+import { convertToDHIS2 } from "./dhis2-converter";
+import { processPreviousInstances } from "./entities-processor";
 import {
     AggDataValue,
     Authentication,
-    DHIS2ProcessedData,
     DHIS2Response,
     GODataOption,
-    GODataTokenGenerationResponse,
     GoDataOuTree,
+    GODataTokenGenerationResponse,
     GoResponse,
+    IEnrollment,
     IGoData,
     IGoDataOrgUnit,
     IMapping,
@@ -38,6 +46,7 @@ import {
     Param,
     PartialEvent,
     Period,
+    Processed,
     RealMapping,
     StageMapping,
     TrackedEntityInstance,
@@ -45,13 +54,30 @@ import {
     ValueType,
 } from "./interfaces";
 import {
-    convertToDHIS2,
     fetchTrackedEntityInstances,
     findUniqAttributes,
     flattenTrackedEntityInstances,
-    processPreviousInstances,
 } from "./program";
 import { generateUid } from "./uid";
+
+dayjs.extend(localeData);
+dayjs.extend(updateLocale);
+dayjs.extend(weekday);
+dayjs.extend(advancedFormat);
+dayjs.extend(isoWeek);
+dayjs.extend(weekOfYear);
+
+function updateLocaleAndWeekStart(
+    date: Dayjs,
+    locale: string,
+    weekStart: number
+): Dayjs {
+    dayjs.locale(locale);
+    dayjs.updateLocale(locale, {
+        weekStart: weekStart,
+    });
+    return dayjs(date);
+}
 
 export function modifyGoDataOu(
     node: GoDataOuTree,
@@ -626,7 +652,7 @@ export const evaluateMapping = (
                             errors = [
                                 ...errors,
                                 {
-                                    id: Date.now() + Math.random(),
+                                    id: generateUid(),
                                     value,
                                     attribute: val,
                                     valueType,
@@ -639,7 +665,7 @@ export const evaluateMapping = (
                             conflicts = [
                                 ...conflicts,
                                 {
-                                    id: Date.now() + Math.random(),
+                                    id: generateUid(),
                                     value,
                                     attribute: val,
                                     valueType: valueType,
@@ -670,7 +696,7 @@ export const evaluateMapping = (
                                     attribute: val,
                                     valueType: mapping.valueType,
                                     [uniqAttributes.join("")]: uniqValues,
-                                    id: Date.now() + Math.random(),
+                                    id: generateUid(),
                                 })),
                             ];
                         } else if (value) {
@@ -682,7 +708,7 @@ export const evaluateMapping = (
                                     attribute: val,
                                     valueType: mapping.valueType,
                                     [uniqAttributes.join("")]: uniqValues,
-                                    id: Date.now() + Math.random(),
+                                    id: generateUid(),
                                 })),
                             ];
                         }
@@ -1051,16 +1077,17 @@ export const groupGoData4Insert = async (
 export const processLineList = ({
     data,
     mapping,
-    attributionMapping,
-    ouMapping,
+    organisationUnitMapping,
 }: {
     data: any[];
     mapping: Partial<IMapping>;
-    attributionMapping: Mapping;
-    ouMapping: Mapping;
-}): Array<AggDataValue> => {
+    organisationUnitMapping: Mapping;
+}): { validData: Array<AggDataValue>; invalidData: any[] } => {
+    const periodType = mapping.aggregate.periodType;
     const {
-        orgUnitColumn,
+        info: { orgUnitColumn },
+    } = organisationUnitMapping;
+    const {
         aggregate: {
             dataElementColumn,
             periodColumn,
@@ -1070,31 +1097,51 @@ export const processLineList = ({
         },
     } = mapping;
 
-    return data.map((a) => ({
-        dataElement: a[dataElementColumn],
-        period: a[periodColumn],
-        orgUnit: a[orgUnitColumn],
-        categoryOptionCombo: a[categoryOptionComboColumn],
-        attributeOptionCombo: a[attributeOptionComboColumn],
-        value: a[valueColumn],
-    }));
+    let validData: AggDataValue[] = [];
+    let invalidData: any[] = [];
+
+    for (const a of data) {
+        const aggValues: AggDataValue = {
+            dataElement: a[dataElementColumn],
+            period: a[periodColumn],
+            orgUnit: a[orgUnitColumn],
+            categoryOptionCombo: a[categoryOptionComboColumn],
+            value: a[valueColumn],
+            attributeOptionCombo: a[attributeOptionComboColumn],
+        };
+        const { validData: val, invalidData: inv } = validateAggValue(
+            aggValues,
+            periodType
+        );
+
+        if (val) {
+            validData = [...validData, ...val];
+        }
+        if (inv) {
+            invalidData = [...invalidData, ...inv];
+        }
+    }
+    return { validData, invalidData };
 };
 
 export const processElements = ({
     mapping,
     dataMapping,
     data,
-    ouMapping,
+    organisationUnitMapping,
     attributionMapping,
 }: {
     data: any[];
     mapping: Partial<IMapping>;
     dataMapping: Mapping;
-    ouMapping: Mapping;
+    organisationUnitMapping: Mapping;
     attributionMapping: Mapping;
-}): Array<AggDataValue> => {
+}): { validData: Array<AggDataValue>; invalidData: any[] } => {
     const {
-        orgUnitColumn,
+        info: { orgUnitColumn },
+    } = organisationUnitMapping;
+    const periodType = mapping.aggregate.periodType;
+    const {
         aggregate: {
             periodColumn,
             attributeOptionComboColumn,
@@ -1102,8 +1149,11 @@ export const processElements = ({
             hasAttribution,
         },
     } = mapping;
-    const processed = data.flatMap((d) => {
-        return Object.entries(dataMapping).map(([key, { value }]) => {
+
+    let validData: AggDataValue[] = [];
+    let invalidData: any[] = [];
+    data.forEach((d) => {
+        return Object.entries(dataMapping).forEach(([key, { value }]) => {
             const [dataElement, categoryOptionCombo] = key.split(",");
             let result: AggDataValue = {
                 dataElement,
@@ -1120,10 +1170,21 @@ export const processElements = ({
                     };
                 }
             }
-            return result;
+
+            const { validData: val, invalidData: inv } = validateAggValue(
+                result,
+                periodType
+            );
+
+            if (val) {
+                validData = [...validData, ...val];
+            }
+            if (inv) {
+                invalidData = [...invalidData, ...inv];
+            }
         });
     });
-    return processed;
+    return { validData, invalidData };
 };
 
 export const processOther = () => {};
@@ -1258,19 +1319,22 @@ export const processDataSet = ({
     data,
     mapping,
     dataMapping,
-    ouMapping,
+    organisationUnitMapping,
     attributionMapping,
 }: {
     data: any[];
     mapping: Partial<IMapping>;
     dataMapping: Mapping;
-    ouMapping: Mapping;
+    organisationUnitMapping: Mapping;
     attributionMapping: Mapping;
-}) => {
-    const flippedUnits = makeFlipped(ouMapping);
+}): { validData: Array<AggDataValue>; invalidData: any[] } => {
+    const periodType = mapping.aggregate.periodType;
+    const flippedUnits = makeFlipped(organisationUnitMapping);
     const flippedMapping = makeFlipped(dataMapping);
     const flippedAttribution = makeFlipped(attributionMapping);
-    return data.flatMap((d) => {
+    let validData: AggDataValue[] = [];
+    let invalidData: any[] = [];
+    data.forEach((d) => {
         const key = `${d["dataElement"]},${d["categoryOptionCombo"]}`;
         const mapping = flippedMapping[key];
         const orgUnit = flippedUnits[d["orgUnit"]];
@@ -1279,7 +1343,7 @@ export const processDataSet = ({
 
         if (mapping && orgUnit && attributeOptionCombo) {
             const [dataElement, categoryOptionCombo] = mapping.split(",");
-            return {
+            const aggValues: AggDataValue = {
                 dataElement,
                 categoryOptionCombo,
                 value: d["value"],
@@ -1287,28 +1351,42 @@ export const processDataSet = ({
                 attributeOptionCombo,
                 period: d["period"],
             };
-        }
 
-        return [];
+            const { validData: val, invalidData: inv } = validateAggValue(
+                aggValues,
+                periodType
+            );
+
+            if (val) {
+                validData = [...validData, ...val];
+            }
+            if (inv) {
+                invalidData = [...invalidData, ...inv];
+            }
+        }
     });
+    return { validData, invalidData };
 };
 
 export const processIndicators = ({
     mapping,
     dataMapping,
     data,
-    ouMapping,
+    organisationUnitMapping,
     attributionMapping,
 }: {
     data: any[];
     mapping: Partial<IMapping>;
     dataMapping: Mapping;
-    ouMapping: Mapping;
+    organisationUnitMapping: Mapping;
     attributionMapping: Mapping;
-}): Array<AggDataValue> => {
-    const flippedUnits = makeFlipped(ouMapping);
-    const processed = data.flatMap((d) => {
-        return Object.entries(dataMapping).flatMap(([key, { value }]) => {
+}): { validData: Array<AggDataValue>; invalidData: any[] } => {
+    const flippedUnits = makeFlipped(organisationUnitMapping);
+    const periodType = mapping.aggregate.periodType;
+    let validData: AggDataValue[] = [];
+    let invalidData: any[] = [];
+    data.forEach((d) => {
+        return Object.entries(dataMapping).forEach(([key, { value }]) => {
             const orgUnit = flippedUnits[d["ou"]];
             if (d["dx"] === value && orgUnit) {
                 const [dataElement, categoryOptionCombo, attributeOptionCombo] =
@@ -1324,12 +1402,20 @@ export const processIndicators = ({
                 if (attributeOptionCombo) {
                     result = { ...result, attributeOptionCombo };
                 }
-                return result;
+                const { validData: val, invalidData: inv } = validateAggValue(
+                    result,
+                    periodType
+                );
+                if (val) {
+                    validData = [...validData, ...val];
+                }
+                if (inv) {
+                    invalidData = [...invalidData, ...inv];
+                }
             }
-            return [];
         });
     });
-    return processed;
+    return { validData, invalidData };
 };
 
 export const validateValue = ({
@@ -1353,6 +1439,7 @@ export const validateValue = ({
     value: any;
 }> => {
     if (mapping.value) {
+        console.log(option);
         const validation = ValueType[option.valueType];
         let value = getOr("", mapping.value, data);
         if (mapping.isSpecific) {
@@ -1376,14 +1463,14 @@ export const validateValue = ({
                         v.code === value || v.id === value || v.value === value
                 ) !== -1
             ) {
-                return { success: true, value };
+                return { success: true, value, errors: [], conflicts: [] };
             } else {
                 if (mapping.mandatory) {
                     return {
                         success: false,
                         errors: [
                             {
-                                id: Date.now() + Math.random(),
+                                id: generateUid(),
                                 value,
                                 field,
                                 uniqueKey,
@@ -1393,6 +1480,7 @@ export const validateValue = ({
                                     .join(",")})`,
                             },
                         ],
+                        conflicts: [],
                     };
                 }
                 if (value) {
@@ -1400,7 +1488,7 @@ export const validateValue = ({
                         success: false,
                         conflicts: [
                             {
-                                id: Date.now() + Math.random(),
+                                id: generateUid(),
                                 value,
                                 field,
                                 uniqueKey,
@@ -1410,6 +1498,7 @@ export const validateValue = ({
                                     .join(",")})`,
                             },
                         ],
+                        errors: [],
                     };
                 }
             }
@@ -1427,9 +1516,11 @@ export const validateValue = ({
                     return {
                         success: true,
                         value: String(value).replace("Z", ""),
+                        errors: [],
+                        conflicts: [],
                     };
                 }
-                return { success: true, value };
+                return { success: true, value, errors: [], conflicts: [] };
             } catch (error) {
                 const { issues } = error;
                 if (mapping.mandatory) {
@@ -1441,8 +1532,9 @@ export const validateValue = ({
                             field,
                             uniqueKey,
                             valueType: mapping.valueType,
-                            id: Date.now() + Math.random(),
+                            id: generateUid(),
                         })),
+                        conflicts: [],
                     };
                 }
                 if (value) {
@@ -1454,13 +1546,14 @@ export const validateValue = ({
                             field,
                             uniqueKey,
                             valueType: mapping.valueType,
-                            id: Date.now() + Math.random(),
+                            id: generateUid(),
                         })),
+                        errors: [],
                     };
                 }
             }
         } else if (value) {
-            return { success: true, value };
+            return { success: true, value, errors: [], conflicts: [] };
         }
     }
     return { success: false, conflicts: [], errors: [] };
@@ -1515,43 +1608,20 @@ export const processAttributes = ({
 export const getGeometry = ({
     data,
     featureType,
-    geometryMerged,
     geometryColumn,
-    latitudeColumn,
-    longitudeColumn,
 }: {
     featureType: string;
-    geometryMerged: boolean;
     geometryColumn: string;
-    latitudeColumn: string;
-    longitudeColumn: string;
     data: any;
 }) => {
-    if (featureType === "POINT" && geometryMerged && geometryColumn) {
+    if (geometryColumn && featureType === "POINT") {
         const point = getOr("", geometryColumn, data);
-
         if (point && isArray(point)) {
             return {
                 type: "Point",
                 coordinates: point,
             };
         }
-    } else if (
-        featureType === "POINT" &&
-        !geometryMerged &&
-        latitudeColumn &&
-        longitudeColumn
-    ) {
-        const lat = getOr("", latitudeColumn, data);
-        const lon = getOr("", longitudeColumn, data);
-
-        if (lon && lat) {
-            return {
-                type: "Point",
-                coordinates: [lat, lon],
-            };
-        }
-    } else if (featureType === "POLYGON" && geometryColumn) {
     }
     return {};
 };
@@ -1561,9 +1631,6 @@ export const makeEvent = ({
     data,
     featureType,
     geometryColumn,
-    geometryMerged,
-    latitudeColumn,
-    longitudeColumn,
     eventIdColumn,
     elements,
     programStage,
@@ -1574,26 +1641,25 @@ export const makeEvent = ({
     options,
     dataElements,
     uniqueKey,
+    registration,
 }: {
     eventDateColumn: string;
     data: any;
     featureType: string;
     geometryColumn: string;
-    geometryMerged: boolean;
-    latitudeColumn: string;
-    longitudeColumn: string;
     eventIdColumn: string;
     elements: {
         [key: string]: Partial<RealMapping>;
     };
     programStage: string;
-    enrollment: { enrollmentDate: string; enrollment: string };
-    trackedEntityInstance: string;
+    enrollment?: IEnrollment;
+    trackedEntityInstance?: string;
     program: string;
     orgUnit: string;
     options: Dictionary<string>;
     dataElements: Dictionary<Option>;
     uniqueKey: string;
+    registration: boolean;
 }): Partial<{
     errors: any[];
     conflicts: any[];
@@ -1609,14 +1675,15 @@ export const makeEvent = ({
             data,
             featureType,
             geometryColumn,
-            geometryMerged,
-            latitudeColumn,
-            longitudeColumn,
         });
         const eventId = getOr(generateUid(), eventIdColumn, data);
         Object.entries(elements).forEach(([dataElement, eMapping]) => {
             const currentDataElement = dataElements[dataElement];
-            const validation = validateValue({
+            const {
+                value,
+                errors: errs,
+                conflicts: conf,
+            } = validateValue({
                 data,
                 option: currentDataElement,
                 field: dataElement,
@@ -1624,35 +1691,73 @@ export const makeEvent = ({
                 flippedOptions: options,
                 uniqueKey,
             });
-            if (validation.value) {
+            if (value) {
                 dataValues = {
                     ...dataValues,
-                    [dataElement]: validation.value,
+                    [dataElement]: value,
                 };
             } else {
-                conflicts = conflicts.concat(validation.conflicts);
-                errors = errors.concat(validation.errors);
+                conflicts = conflicts.concat(
+                    conf.map((a) => ({
+                        ...a,
+                        trackedEntityInstance,
+                        id: `${a.id}${trackedEntityInstance}${uniqueKey}`,
+                    }))
+                );
+                errors = errors.concat(
+                    errs.map((a) => ({
+                        ...a,
+                        trackedEntityInstance,
+                        id: `${a.id}${trackedEntityInstance}${uniqueKey}`,
+                    }))
+                );
             }
         });
         let event: PartialEvent = {
             eventDate,
             programStage,
-            enrollment: enrollment.enrollment,
-            trackedEntityInstance,
             program,
             orgUnit,
             event: eventId,
             dataValues,
         };
+
         if (!isEmpty(eventGeometry)) {
             event = { ...event, geometry: eventGeometry };
         }
-        return { event, errors, conflicts };
+
+        if (!registration && orgUnit) {
+            return { event, errors, conflicts };
+        } else if (registration && enrollment && trackedEntityInstance) {
+            return {
+                event: {
+                    ...event,
+                    enrollment: enrollment.enrollment,
+                    trackedEntityInstance,
+                },
+                errors,
+                conflicts,
+            };
+        }
+
+        return {
+            errors: [
+                {
+                    id: generateUid(),
+                    value: possibleEventDate,
+                    field: "enrollment/tracked entity instance",
+                    valueType: "enrollment",
+                    message: `enrollment/tracked entity instance is missing`,
+                    uniqueKey,
+                },
+            ],
+            conflicts,
+        };
     }
     return {
         errors: [
             {
-                id: Date.now() + Math.random(),
+                id: generateUid(),
                 value: possibleEventDate,
                 field: "eventDate",
                 valueType: "DATE",
@@ -1698,7 +1803,7 @@ export const processInstances = async (
         trackedEntityInstances,
         mapping,
         attributeMapping,
-        api,
+        engine,
         version,
         program,
         optionMapping,
@@ -1706,75 +1811,319 @@ export const processInstances = async (
         programStageMapping,
         programStageUniqueElements,
         programUniqAttributes,
+        enrollmentMapping,
         setMessage,
     }: {
         attributeMapping: Mapping;
         mapping: Partial<IMapping>;
         trackedEntityInstances: Array<Partial<TrackedEntityInstance>>;
-        api: Partial<{ engine: any; axios: AxiosInstance }>;
+        engine: any;
         version: number;
         program: Partial<IProgram>;
         optionMapping: Record<string, string>;
         organisationUnitMapping: Mapping;
         programStageMapping: StageMapping;
+        enrollmentMapping: Mapping;
         programStageUniqueElements: Dictionary<string[]>;
         programUniqAttributes: string[];
-        setMessage: (message: string) => void;
+        setMessage: React.Dispatch<React.SetStateAction<string>>;
     },
-    callback: (processedData: DHIS2ProcessedData) => Promise<void>
+    callback: (processedData: Processed) => Promise<void>
 ) => {
+    let stages: string[] = [];
+
+    if (
+        mapping.program?.program === mapping.program?.remoteProgram &&
+        mapping.dataSource === "dhis2-program" &&
+        mapping.isCurrentInstance
+    ) {
+        stages = Object.keys(programStageMapping);
+    }
+
     const currentData = flattenTrackedEntityInstances(
         {
             trackedEntityInstances,
         },
-        "ALL"
+        "ALL",
+        stages
     );
+    let instances: Array<Partial<TrackedEntityInstance>> = [];
+
     let uniqueAttributeValues: any[] = [];
     let trackedInstanceIds: string[] = [];
-    if (mapping.program?.trackedEntityInstanceColumn) {
-        trackedInstanceIds = trackedEntityInstances
-            .map(({ trackedEntityInstance }) => trackedEntityInstance ?? "")
-            .filter((a) => a !== "");
-    } else {
-        uniqueAttributeValues = findUniqAttributes(
-            currentData,
-            attributeMapping
+
+    if (
+        mapping.program?.program === mapping.program?.remoteProgram &&
+        mapping.dataSource === "dhis2-program" &&
+        mapping.isCurrentInstance
+    ) {
+        instances = trackedEntityInstances;
+        trackedInstanceIds = trackedEntityInstances.flatMap(
+            ({ trackedEntityInstance }) => {
+                if (trackedEntityInstance) return trackedEntityInstance;
+                return [];
+            }
         );
+    } else {
+        const { info } = attributeMapping;
+        const { trackedEntityInstanceColumn } = info;
+        if (trackedEntityInstanceColumn) {
+            trackedInstanceIds = trackedEntityInstances.flatMap(
+                ({ trackedEntityInstance }) => {
+                    if (trackedEntityInstance) return trackedEntityInstance;
+                    return [];
+                }
+            );
+        } else {
+            uniqueAttributeValues = findUniqAttributes(
+                currentData,
+                attributeMapping
+            );
+        }
+        if (currentData.length > 0) {
+            const { trackedEntityInstances } =
+                await fetchTrackedEntityInstances({
+                    api: { engine },
+                    program: mapping.program?.program,
+                    additionalParams: {},
+                    uniqueAttributeValues,
+                    withAttributes: true,
+                    trackedEntityInstances: trackedInstanceIds,
+                    fields: "*",
+                    pageSize: "50",
+                });
+            instances = trackedEntityInstances;
+        }
     }
 
-    if (currentData.length > 0) {
-        setMessage(`Fetching data from destination program`);
-        const instances = await fetchTrackedEntityInstances({
-            api,
-            program: mapping.program?.program,
-            additionalParams: {},
-            uniqueAttributeValues,
-            withAttributes: true,
-            trackedEntityInstances: trackedInstanceIds,
-            fields: "*",
-            pageSize: "50",
-        });
+    const previous = processPreviousInstances({
+        trackedEntityInstances: instances,
+        programUniqAttributes,
+        programStageUniqueElements,
+        currentProgram: mapping.program?.program,
+        programStageMapping,
+        trackedEntityIdIdentifiesInstance: trackedInstanceIds.length > 0,
+    });
 
-        const previous = processPreviousInstances({
-            trackedEntityInstances: instances.trackedEntityInstances,
-            programUniqAttributes,
-            programStageUniqueElements,
-            currentProgram: mapping.program?.program,
-            trackedEntityIdIdentifiesInstance: trackedInstanceIds.length > 0,
-            programStageMapping,
-        });
-
-        const convertedData = await convertToDHIS2({
-            previousData: previous,
-            data: currentData,
-            mapping: mapping,
-            organisationUnitMapping,
-            attributeMapping,
-            programStageMapping,
-            optionMapping,
-            version,
-            program,
-        });
-        callback(convertedData);
-    }
+    setMessage(() => `Converting data to destination DHIS2`);
+    const convertedData = await convertToDHIS2({
+        previousData: previous,
+        data: currentData,
+        mapping: mapping,
+        organisationUnitMapping,
+        attributeMapping,
+        programStageMapping,
+        optionMapping,
+        version,
+        program,
+        enrollmentMapping,
+    });
+    await callback(convertedData);
 };
+
+export const validatePeriod = (period: string, periodType: string): boolean => {
+    const periodTypes = {
+        Daily: /^(\d{4})(\d{2})(\d{2})$/,
+        Weekly: /^(\d{4})W(\d{1})$/,
+        WeeklyWednesday: /^(\d{4})WedW(\d{1})$/,
+        WeeklyThursday: /^(\d{4})ThuW(\d{1})$/,
+        WeeklySaturday: /^(\d{4})SatW(\d{1})$/,
+        WeeklySunday: /^(\d{4})SunW(\d{1})$/,
+        BiWeekly: /^(\d{4})BiW(\d{2})$/,
+        Monthly: /^(\d{4})(\d{2})$/,
+        BiMonthly: /^(\d{4})(\d{2})B$/,
+        Quarterly: /^(\d{4})Q(\d{1})$/,
+        // QUARTERLYNOVEMBER: /^(\d{4})NovemberQ(\d{1})$/,
+        SixMonthly: /^(\d{4})S(\d{1})$/,
+        SixMonthlyApril: /^(\d{4})AprilS(\d{1})$/,
+        // SIXMONTHLYNOV: /^(\d{4})NovemberS(\d{1})$/,
+        Yearly: /^(\d{4})$/,
+        FinancialNov: /^(\d{4})Nov$/,
+        FinancialOct: /^(\d{4})Oct$/,
+        FinancialJuly: /^(\d{4})Jul$/,
+        FinancialApril: /^(\d{4})Apr$/,
+    };
+    return periodTypes[periodType]?.test(period);
+};
+
+export const validateAggValue = (
+    aggValue: AggDataValue,
+    periodType: string
+) => {
+    let validData: AggDataValue[] = [];
+    let invalidData: any[] = [];
+    const {
+        dataElement,
+        period,
+        orgUnit,
+        value,
+        categoryOptionCombo,
+        attributeOptionCombo,
+    } = aggValue;
+    if (
+        dataElement &&
+        period &&
+        orgUnit &&
+        value &&
+        validatePeriod(period, periodType)
+    ) {
+        validData = validData.concat({
+            dataElement,
+            period,
+            orgUnit,
+            categoryOptionCombo,
+            value,
+            attributeOptionCombo,
+        });
+    } else {
+        if (!dataElement) {
+            invalidData = [
+                ...invalidData,
+                { ...aggValue, error: "Data element is missing" },
+            ];
+        }
+        if (!period) {
+            invalidData = [
+                ...invalidData,
+                { ...aggValue, error: "Period is missing" },
+            ];
+        }
+        if (!validatePeriod(period, periodType)) {
+            invalidData = [
+                ...invalidData,
+                { ...aggValue, error: "Period is invalid" },
+            ];
+        }
+        if (!orgUnit) {
+            invalidData = [
+                ...invalidData,
+                { ...aggValue, error: "Organisation unit is missing" },
+            ];
+        }
+        if (!value) {
+            invalidData = [
+                ...invalidData,
+                { ...aggValue, error: "Value is missing" },
+            ];
+        }
+    }
+    return { validData, invalidData };
+};
+// export const convertDateToPeriods = (date: string): Dictionary<string> => {
+//     return {
+//         DAILY: getFixedPeriodByDate({
+//             date: dayjs(date).format("YYYY-MM-DD"),
+//             calendar: "gregory",
+//             periodType: "DAILY",
+//             locale: "en",
+//         }).id,
+//         WEEKLY: getFixedPeriodByDate({
+//             date: dayjs(date).format("YYYY-MM-DD"),
+//             calendar: "gregory",
+//             periodType: "WEEKLY",
+//             locale: "en",
+//         }).id,
+//         WEEKLYWED: getFixedPeriodByDate({
+//             date: dayjs(date).format("YYYY-MM-DD"),
+//             calendar: "gregory",
+//             periodType: "WEEKLYWED",
+//             locale: "en",
+//         }).id,
+//         WEEKLYTHU: getFixedPeriodByDate({
+//             date: dayjs(date).format("YYYY-MM-DD"),
+//             calendar: "gregory",
+//             periodType: "WEEKLYTHU",
+//             locale: "en",
+//         }).id,
+//         WEEKLYSAT: getFixedPeriodByDate({
+//             date: dayjs(date).format("YYYY-MM-DD"),
+//             calendar: "gregory",
+//             periodType: "WEEKLYSAT",
+//             locale: "en",
+//         }).id,
+//         WEEKLYSUN: getFixedPeriodByDate({
+//             date: dayjs(date).format("YYYY-MM-DD"),
+//             calendar: "gregory",
+//             periodType: "WEEKLYSUN",
+//             locale: "en",
+//         }).id,
+//         BIWEEKLY: getFixedPeriodByDate({
+//             date: dayjs(date).format("YYYY-MM-DD"),
+//             calendar: "gregory",
+//             periodType: "BIWEEKLY",
+//             locale: "en",
+//         }).id,
+//         MONTHLY: getFixedPeriodByDate({
+//             date: dayjs(date).format("YYYY-MM-DD"),
+//             calendar: "gregory",
+//             periodType: "MONTHLY",
+//             locale: "en",
+//         }).id,
+//         BIMONTHLY: getFixedPeriodByDate({
+//             date: dayjs(date).format("YYYY-MM-DD"),
+//             calendar: "gregory",
+//             periodType: "BIMONTHLY",
+//             locale: "en",
+//         }).id,
+//         QUARTERLY: getFixedPeriodByDate({
+//             date: dayjs(date).format("YYYY-MM-DD"),
+//             calendar: "gregory",
+//             periodType: "QUARTERLY",
+//             locale: "en",
+//         }).id,
+//         QUARTERLYNOV: getFixedPeriodByDate({
+//             date: dayjs(date).format("YYYY-MM-DD"),
+//             calendar: "gregory",
+//             periodType: "QUARTERLYNOV",
+//             locale: "en",
+//         }).id,
+//         SIXMONTHLY: getFixedPeriodByDate({
+//             date: dayjs(date).format("YYYY-MM-DD"),
+//             calendar: "gregory",
+//             periodType: "SIXMONTHLY",
+//             locale: "en",
+//         }).id,
+//         SIXMONTHLYAPR: getFixedPeriodByDate({
+//             date: dayjs(date).format("YYYY-MM-DD"),
+//             calendar: "gregory",
+//             periodType: "SIXMONTHLYAPR",
+//             locale: "en",
+//         }).id,
+//         SIXMONTHLYNOV: getFixedPeriodByDate({
+//             date: dayjs(date).format("YYYY-MM-DD"),
+//             calendar: "gregory",
+//             periodType: "SIXMONTHLYNOV",
+//             locale: "en",
+//         }).id,
+//         YEARLY: getFixedPeriodByDate({
+//             date: dayjs(date).format("YYYY-MM-DD"),
+//             calendar: "gregory",
+//             periodType: "YEARLY",
+//             locale: "en",
+//         }).id,
+//         FYNOV: getFixedPeriodByDate({
+//             date: dayjs(date).format("YYYY-MM-DD"),
+//             calendar: "gregory",
+//             periodType: "FYNOV",
+//             locale: "en",
+//         }).id,
+//         FYOCT: getFixedPeriodByDate({
+//             date: dayjs(date).format("YYYY-MM-DD"),
+//             calendar: "gregory",
+//             periodType: "FYOCT",
+//             locale: "en",
+//         }).id,
+//         FYJUL: getFixedPeriodByDate({
+//             date: dayjs(date).format("YYYY-MM-DD"),
+//             calendar: "gregory",
+//             periodType: "FYJUL",
+//             locale: "en",
+//         }).id,
+//         FYAPR: getFixedPeriodByDate({
+//             date: dayjs(date).format("YYYY-MM-DD"),
+//             calendar: "gregory",
+//             periodType: "FYAPR",
+//             locale: "en",
+//         }).id,
+//     };
+// };

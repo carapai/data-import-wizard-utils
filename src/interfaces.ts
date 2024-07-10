@@ -6,6 +6,7 @@ import type {
     ZodLiteral,
     ZodNumber,
     ZodString,
+    ZodUnion,
 } from "zod";
 import z from "zod";
 export type Extraction = "json" | "cell" | "column";
@@ -54,6 +55,7 @@ export interface DHIS2SourceOptions {
     period: Period[];
     useAnalytics: boolean;
     searchPeriod: "enrollmentDate" | "eventDate";
+    trackedEntityInstance: string;
 }
 
 export type Update = {
@@ -80,8 +82,15 @@ export interface CommonIdentifier {
     name: string;
     code: string;
 }
+
+export interface ITrackedEntityTypeAttribute {
+    trackedEntityAttribute: ITrackedEntityAttribute;
+    id: string;
+}
 export interface TrackedEntityType extends CommonIdentifier {
+    trackedEntityTypeAttributes: ITrackedEntityTypeAttribute[];
     featureType: string;
+    id: string;
 }
 
 export interface DHIS2OrgUnit extends CommonIdentifier {
@@ -94,12 +103,14 @@ export const ValueType: {
         | ZodBoolean
         | ZodNumber
         | ZodLiteral<true>
-        | ZodEffects<ZodNumber, number, unknown>;
+        | ZodEffects<ZodNumber, number, unknown>
+        | ZodUnion<[ZodNumber, ZodString]>
+        | ZodUnion<[ZodString, ZodNumber]>;
 } = {
-    TEXT: z.string(),
-    LONG_TEXT: z.string(),
+    TEXT: z.string().min(1),
+    LONG_TEXT: z.string().min(1),
     LETTER: z.string().length(1),
-    PHONE_NUMBER: z.string(),
+    PHONE_NUMBER: z.string().min(1),
     EMAIL: z.string().email(),
     BOOLEAN: z.boolean(),
     TRUE_ONLY: z.literal(true),
@@ -112,22 +123,34 @@ export const ValueType: {
     TIME: z.string().regex(/^(\d{2}):(\d{2})/),
     NUMBER: z.preprocess(Number, z.number()),
     UNIT_INTERVAL: z.string(),
-    PERCENTAGE: z.preprocess(Number, z.number().int().gte(0).lte(100)),
-    INTEGER: z.preprocess(Number, z.number().int()),
-    INTEGER_POSITIVE: z.preprocess(Number, z.number().int().positive().min(1)),
-    INTEGER_NEGATIVE: z.preprocess(Number, z.number().int().negative()),
-    INTEGER_ZERO_OR_POSITIVE: z.preprocess(Number, z.number().int().min(0)),
+    PERCENTAGE: z.union([
+        z.string().regex(/^\d+$/),
+        z.number().int().positive().lte(100),
+    ]),
+    INTEGER: z.union([z.string().regex(/^\d+$/), z.number().int()]),
+    INTEGER_POSITIVE: z.union([
+        z.string().regex(/^\d+$/),
+        z.number().int().positive(),
+    ]),
+    INTEGER_NEGATIVE: z.union([
+        z.string().regex(/^\d+$/),
+        z.number().int().negative(),
+    ]),
+    INTEGER_ZERO_OR_POSITIVE: z.union([
+        z.string().regex(/^\d+$/),
+        z.number().int().min(0),
+    ]),
     TRACKER_ASSOCIATE: z.string().length(11),
-    USERNAME: z.string(),
-    COORDINATE: z.string(),
+    USERNAME: z.string().min(1),
+    COORDINATE: z.string().min(1),
     ORGANISATION_UNIT: z.string().length(11),
     REFERENCE: z.string().length(11),
     AGE: z.string().regex(/^(\d{4})-(\d{2})-(\d{2})/),
     URL: z.string().url(),
     FILE_RESOURCE: z.string(),
-    IMAGE: z.string(),
-    GEOJSON: z.string(),
-    MULTI_TEXT: z.string(),
+    IMAGE: z.string().min(1),
+    GEOJSON: z.string().min(1),
+    MULTI_TEXT: z.string().min(1),
 };
 export interface Param {
     param: string;
@@ -159,16 +182,7 @@ export interface IProgramMapping {
     program: string;
     programType: string;
     trackedEntityType: string;
-    customEnrollmentDateColumn: boolean;
-    customIncidentDateColumn: boolean;
-    createEnrollments: boolean;
-    createEntities: boolean;
-    updateEntities: boolean;
-    enrollmentDateColumn: string;
-    incidentDateColumn: string;
     metadataApiAuthentication: Partial<Authentication>;
-    trackedEntityInstanceColumn: string;
-    trackedEntityInstanceColumnIsManual: boolean;
     onlyEnrollOnce: boolean;
     metadataOptions: MetadataOptions;
     withoutRegistration: boolean;
@@ -176,14 +190,6 @@ export interface IProgramMapping {
     remoteProgram: string;
     selectIncidentDatesInFuture: boolean;
     selectEnrollmentDatesInFuture: boolean;
-    longitudeColumn: string;
-    latitudeColumn: string;
-    geometryColumn: string;
-    geometryMerged: boolean;
-    enrollmentLongitudeColumn: string;
-    enrollmentLatitudeColumn: string;
-    enrollmentGeometryColumn: string;
-    enrollmentGeometryMerged: boolean;
 }
 
 export interface IAggregateMapping {
@@ -198,19 +204,18 @@ export interface IAggregateMapping {
     attributionMerged: boolean;
     hasAttribution: boolean;
     indicatorGenerationLevel: string;
+    periodType: string;
 }
 
 export interface IMapping {
     id: string;
     name: string;
     description: string;
-    orgUnitColumn: string;
     isSource: boolean;
     created: string;
     useColumnLetters: boolean;
     lastUpdated: string;
     orgUnitSource: "api" | "manual" | "default";
-    customOrgUnitColumn: boolean;
     authentication: Partial<Authentication>;
     orgUnitApiAuthentication: Partial<Authentication>;
     remoteOrgUnitLabelField: string;
@@ -335,11 +340,23 @@ export interface RealMapping {
     valueType: string;
     isOrgUnit: boolean;
     completeEvents: boolean;
-    longitudeColumn: string;
-    latitudeColumn: string;
     geometryColumn: string;
-    geometryMerged: boolean;
+    customGeometryColumn: boolean;
     customType: string;
+    enrollmentDateColumn: string;
+    incidentDateColumn: string;
+    createEnrollments: boolean;
+    updateEnrollments: boolean;
+    customEnrollmentDateColumn: boolean;
+    customIncidentDateColumn: boolean;
+    createEntities: boolean;
+    updateEntities: boolean;
+    trackedEntityInstanceColumn: string;
+    customTrackedEntityInstanceColumn: boolean;
+    enrollmentIdColumn: string;
+    customEnrollmentIdColumn: boolean;
+    orgUnitColumn: string;
+    customOrgUnitColumn: boolean;
 }
 
 export interface Mapping {
@@ -846,6 +863,7 @@ export interface IDataSet {
     id: string;
     organisationUnits: DHIS2OrgUnit[];
     categoryCombo: CategoryCombo;
+    periodType: string;
 }
 
 export type AggDataValue = {
@@ -862,6 +880,10 @@ export interface AggConflict {
     value: string;
     errorCode: string;
     property: string;
+
+    message: string;
+    trackerType: string;
+    uid: string;
 }
 
 export type RelativePeriodType =
@@ -943,6 +965,8 @@ export type Metadata = {
     destinationCategoryOptionCombos: Option[];
     sourceCategoryOptionCombos: Option[];
     sourceCategories: Option[];
+    sourceEnrollmentAttributes: Option[];
+    destinationEnrollmentAttributes: Option[];
 };
 
 export interface GoDataOuTree {
@@ -1079,3 +1103,9 @@ export type MappingEvent = {
     path?: KeyOptions;
     subPath?: SubKeys | AuthOptions | ParamsOptions | string;
 };
+
+export type IEnrollment = Partial<
+    Omit<Enrollment, "attributes"> & {
+        attributes: Dictionary<string>;
+    }
+>;

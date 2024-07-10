@@ -1,30 +1,30 @@
 import { Dictionary, isEmpty } from "lodash";
 import { getOr, uniqBy } from "lodash/fp";
 import {
-    GO_DATA_PERSON_FIELDS,
     GO_DATA_EPIDEMIOLOGY_FIELDS,
     GO_DATA_EVENTS_FIELDS,
     GO_DATA_LAB_FIELDS,
+    GO_DATA_PERSON_FIELDS,
     GO_DATA_RELATIONSHIP_FIELDS,
 } from "./constants";
 import {
-    IProgram,
-    IMapping,
-    StageMapping,
-    Mapping,
-    IGoData,
-    GODataOption,
-    Option,
     DHIS2OrgUnit,
+    GODataOption,
     IDataSet,
+    IGoData,
+    IMapping,
+    IProgram,
+    Mapping,
     Metadata,
+    Option,
+    StageMapping,
 } from "./interfaces";
 import {
     findTrackedEntityInstanceIds,
-    flattenProgram,
-    flattenGoData,
-    getAttributes,
     findUniqAttributes,
+    flattenGoData,
+    flattenProgram,
+    getAttributes,
 } from "./program";
 
 const getParentName = (parent: Partial<DHIS2OrgUnit>) => {
@@ -62,12 +62,16 @@ export const makeMetadata = ({
     programIndicators,
     indicators,
     dhis2DataSet,
+    enrollmentMapping,
+    organisationUnitMapping,
 }: Partial<{
     data: any[];
     mapping: Partial<IMapping>;
     dhis2Program: Partial<IProgram>;
     programStageMapping: StageMapping;
     attributeMapping: Mapping;
+    enrollmentMapping: Mapping;
+    organisationUnitMapping: Mapping;
     remoteOrganisations: any[];
     goData: Partial<IGoData>;
     tokens: Dictionary<string>;
@@ -101,18 +105,17 @@ export const makeMetadata = ({
         sourceCategoryOptionCombos: [],
         destinationCategoryOptionCombos: [],
         sourceCategories: [],
+        sourceEnrollmentAttributes: [],
+        destinationEnrollmentAttributes: [],
     };
 
     if (mapping.type === "individual") {
-        results.destinationColumns = flattenProgram(program);
-        const trackedEntityInstanceIds = findTrackedEntityInstanceIds(
-            data,
-            mapping.program
-        );
-        results.trackedEntityInstanceIds = trackedEntityInstanceIds;
+        const { elements, attributes } = flattenProgram(program);
 
-        const destinationOrgUnits = getOrgUnits(program);
-        const destinationAttributes = getAttributes(program).sort((a, b) => {
+        const { enrollmentAttributes, trackedEntityAttributes } =
+            getAttributes(program);
+
+        results.destinationAttributes = trackedEntityAttributes.sort((a, b) => {
             if (a.mandatory && !b.mandatory) {
                 return -1;
             } else if (!a.mandatory && b.mandatory) {
@@ -120,6 +123,25 @@ export const makeMetadata = ({
             }
             return 0;
         });
+        results.destinationEnrollmentAttributes = enrollmentAttributes.sort(
+            (a, b) => {
+                if (a.mandatory && !b.mandatory) {
+                    return -1;
+                } else if (!a.mandatory && b.mandatory) {
+                    return 1;
+                }
+                return 0;
+            }
+        );
+        results.destinationColumns = [...attributes, ...elements];
+        const trackedEntityInstanceIds = findTrackedEntityInstanceIds({
+            data,
+            attributeMapping,
+        });
+        results.trackedEntityInstanceIds = trackedEntityInstanceIds;
+
+        const destinationOrgUnits = getOrgUnits(program);
+
         const uniqueAttributeValues = findUniqAttributes(
             data,
             attributeMapping
@@ -135,7 +157,6 @@ export const makeMetadata = ({
             }) || [];
         results.destinationStages = destinationStages;
         results.destinationOrgUnits = destinationOrgUnits;
-        results.destinationAttributes = destinationAttributes;
         results.uniqueAttributeValues = uniqueAttributeValues;
     } else if (mapping.type === "aggregate" && !isEmpty(dataSet)) {
         if (programIndicators && programIndicators.length > 0) {
@@ -229,7 +250,6 @@ export const makeMetadata = ({
         !isEmpty(dhis2Program)
     ) {
         const sourceOrgUnits: Array<Option> = getOrgUnits(dhis2Program);
-        const attributes = getAttributes(dhis2Program);
         const stages = dhis2Program.programStages?.map(({ id, name }) => {
             const option: Option = {
                 label: name,
@@ -237,11 +257,32 @@ export const makeMetadata = ({
             };
             return option;
         });
-        const stageDataElements = flattenProgram(dhis2Program);
+        const { elements, attributes } = flattenProgram(dhis2Program);
+
+        const { enrollmentAttributes, trackedEntityAttributes } =
+            getAttributes(dhis2Program);
         results.sourceStages = stages;
-        results.sourceColumns = stageDataElements;
-        results.sourceAttributes = attributes;
+        results.sourceColumns = attributes.concat(elements);
         results.sourceOrgUnits = sourceOrgUnits;
+
+        results.sourceAttributes = trackedEntityAttributes.sort((a, b) => {
+            if (a.mandatory && !b.mandatory) {
+                return -1;
+            } else if (!a.mandatory && b.mandatory) {
+                return 1;
+            }
+            return 0;
+        });
+        results.sourceEnrollmentAttributes = enrollmentAttributes.sort(
+            (a, b) => {
+                if (a.mandatory && !b.mandatory) {
+                    return -1;
+                } else if (!a.mandatory && b.mandatory) {
+                    return 1;
+                }
+                return 0;
+            }
+        );
     } else if (mapping.dataSource === "go-data") {
         let units = [];
         let columns: Option[] = [];
@@ -489,15 +530,19 @@ export const makeMetadata = ({
                 const value = v[mapping.remoteOrgUnitValueField] || "";
                 return { label, value };
             });
-        } else {
+        } else if (organisationUnitMapping && organisationUnitMapping.info) {
+            const { orgUnitColumn } = organisationUnitMapping.info;
             units = uniqBy(
                 "value",
-                data.map((d) => {
+                data.flatMap((d) => {
                     const option: Option = {
-                        label: getOr("", mapping.orgUnitColumn || "", d),
-                        value: getOr("", mapping.orgUnitColumn || "", d),
+                        label: getOr("", orgUnitColumn || "", d),
+                        value: getOr("", orgUnitColumn || "", d),
                     };
-                    return option;
+                    if (option.value) {
+                        return option;
+                    }
+                    return [];
                 })
             );
         }
@@ -544,6 +589,8 @@ export const makeMetadata = ({
                 results.destinationCategoryOptionCombos,
             sourceCategoryOptionCombos: results.destinationCategoryOptionCombos,
             sourceCategories: results.destinationCategories,
+            sourceEnrollmentAttributes: results.destinationEnrollmentAttributes,
+            destinationEnrollmentAttributes: results.sourceEnrollmentAttributes,
         };
     }
     return results;
