@@ -41,7 +41,7 @@ export const processEvents = ({
     for (const [programStage, mapping] of Object.entries(programStageMapping)) {
         const { repeatable, featureType } = stages[programStage];
         const stagePreviousEvents = previousEvents[programStage] || {};
-        let currentData = fromPairs([["all", data]]);
+        let currentData = fromPairs([["", data]]);
         const { info, ...elements } = mapping;
         const {
             createEvents,
@@ -61,12 +61,11 @@ export const processEvents = ({
                         return value;
                     }
                     return [];
-                }
+                },
             );
             if (uniqueEventDate) {
                 uniqueColumns = [...uniqueColumns, eventDateColumn];
             }
-
             if (eventIdColumn) {
                 uniqueColumns = [eventIdColumn];
             }
@@ -78,19 +77,25 @@ export const processEvents = ({
                                 const value = getOr("", column, item);
                                 if (column === eventDateColumn && value) {
                                     return dayjs(
-                                        getOr("", column, item)
+                                        getOr("", column, item),
                                     ).format("YYYY-MM-DD");
                                 }
                                 return value;
                             })
                             .join(""),
-                    data
+                    data,
                 );
             }
             for (const [key, currentRow] of Object.entries(currentData)) {
-                const previousEvent = stagePreviousEvents[key];
+                let previousEvent = stagePreviousEvents[key];
+                if (
+                    !repeatable &&
+                    Object.values(stagePreviousEvents).length > 0
+                ) {
+                    previousEvent = Object.values(stagePreviousEvents)[0];
+                }
                 const data = maxBy(currentRow, (d) =>
-                    getOr(undefined, eventDateColumn, d)
+                    getOr(undefined, eventDateColumn, d),
                 );
                 const {
                     event,
@@ -112,19 +117,23 @@ export const processEvents = ({
                     dataElements,
                     uniqueKey,
                     registration,
+                    dueDateColumn,
                 });
-
                 if (event && !isEmpty(event.dataValues)) {
                     let { dataValues, event: e, ...others } = event;
                     if (completeEvents) {
                         others = { ...others, status: "COMPLETED" };
                     }
-                    if (previousEvent) {
-                        const { event, eventDate, ...rest } = previousEvent;
+                    if (
+                        previousEvent &&
+                        previousEvent.enrollment === enrollment.enrollment
+                    ) {
+                        const { event, eventDate, enrollment, ...rest } =
+                            previousEvent;
                         const difference = diff(rest, dataValues);
                         const filteredDifferences = difference.filter(
                             ({ op }) =>
-                                ["add", "replace", "copy"].indexOf(op) !== -1
+                                ["add", "replace", "copy"].indexOf(op) !== -1,
                         );
                         if (filteredDifferences.length > 0) {
                             eventUpdates = eventUpdates.concat({
@@ -153,25 +162,19 @@ export const processEvents = ({
                             })),
                         });
                     }
-
-                    if (!repeatable) {
-                        break;
-                    }
                 } else if (createEmptyEvents && isEmpty(stagePreviousEvents)) {
                     const { dataValues, ...others } = event;
                     newEvents = newEvents.concat({
                         ...others,
                         dataValues: [],
                     });
-                    if (!repeatable) {
-                        break;
-                    }
                 } else {
                     errors = errors.concat(es);
                     conflicts = conflicts.concat(cs);
-                    if (!repeatable) {
-                        break;
-                    }
+                }
+
+                if (!repeatable) {
+                    break;
                 }
             }
         }

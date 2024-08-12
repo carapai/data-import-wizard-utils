@@ -1,6 +1,7 @@
 import { isEmpty } from "lodash/fp";
 import { z } from "zod";
 import {
+    DataSource,
     IMapping,
     IProgram,
     Mapping,
@@ -33,7 +34,6 @@ const hasData = (mapping: Partial<IMapping>, data: any[]) => {
     if (mapping && mapping.isSource) {
         return true;
     }
-
     return data && data.length > 0;
 };
 
@@ -63,7 +63,7 @@ const mandatoryAttributesMapped = ({
                     return false;
                 }
                 return [];
-            }
+            },
         );
         if (mandatoryFields.length > 0) {
             return mandatoryFields.every((value) => value === true);
@@ -85,7 +85,7 @@ const mandatoryGoDataMapped = ({
     if (attributeMapping && mapping) {
         const allAttributes = Object.keys(attributeMapping);
         const hasLab = metadata.lab.find(
-            ({ value }) => allAttributes.indexOf(value) !== -1
+            ({ value }) => allAttributes.indexOf(value) !== -1,
         );
         if (mapping.program?.responseKey === "EVENT") {
             return mandatoryAttributesMapped({
@@ -133,7 +133,7 @@ const mandatoryGoDataMapped = ({
 
 const isValidProgramStage = (
     program: Partial<IProgram>,
-    programStageMapping: StageMapping
+    programStageMapping: StageMapping,
 ) => {
     if (isEmpty(programStageMapping)) {
         return true;
@@ -142,7 +142,7 @@ const isValidProgramStage = (
     const all = Object.entries(programStageMapping).map(([stage, mapping]) => {
         const { info, ...rest } = mapping || {};
         const currentStage = program.programStages.find(
-            ({ id }) => id === stage
+            ({ id }) => id === stage,
         );
         if (
             (info.createEvents || info.updateEvents) &&
@@ -158,7 +158,7 @@ const isValidProgramStage = (
                             return false;
                         }
                         return true;
-                    }
+                    },
                 );
             return allCompulsoryMapped.every((e) => e === true);
         } else if (info.createEvents || info.updateEvents) {
@@ -208,7 +208,7 @@ export const makeValidation = ({
     hasError: boolean;
     enrollmentMapping: Mapping;
 }) => {
-    const allOptions = {
+    const allOptions: Record<number, Record<DataSource, boolean>> = {
         2: {
             "go-data":
                 !hasName(mapping) ||
@@ -218,7 +218,14 @@ export const makeValidation = ({
             "xlsx-line-list": !hasData(mapping, data) || !hasName(mapping),
             "dhis2-program": !hasName(mapping),
             json: !hasData(mapping, data) || !hasName(mapping),
+            fhir: false,
             api: (data && data.length === 0) || !hasName(mapping),
+            "xlsx-tabular-data": false,
+            "xlsx-form": false,
+            "dhis2-data-set": false,
+            "dhis2-indicators": false,
+            "dhis2-program-indicators": false,
+            "manual-dhis2-program-indicators": false,
         },
         3: {
             "go-data": !hasProgram(mapping),
@@ -227,6 +234,13 @@ export const makeValidation = ({
             "dhis2-program": !hasProgram(mapping),
             json: !hasProgram(mapping),
             api: !hasProgram(mapping),
+            fhir: !hasProgram(mapping),
+            "xlsx-tabular-data": false,
+            "xlsx-form": false,
+            "dhis2-data-set": false,
+            "dhis2-indicators": false,
+            "dhis2-program-indicators": false,
+            "manual-dhis2-program-indicators": false,
         },
         5: {
             "go-data": !hasRemote(mapping),
@@ -235,6 +249,14 @@ export const makeValidation = ({
             "dhis2-program": false,
             json: false,
             api: false,
+            fhir: false,
+
+            "xlsx-tabular-data": false,
+            "xlsx-form": false,
+            "dhis2-data-set": false,
+            "dhis2-indicators": false,
+            "dhis2-program-indicators": false,
+            "manual-dhis2-program-indicators": false,
         },
         6: {
             "go-data": false,
@@ -243,6 +265,13 @@ export const makeValidation = ({
             "dhis2-program": !hasRemoteProgram(mapping),
             json: false,
             api: false,
+            fhir: false,
+            "xlsx-tabular-data": false,
+            "xlsx-form": false,
+            "dhis2-data-set": false,
+            "dhis2-indicators": false,
+            "dhis2-program-indicators": false,
+            "manual-dhis2-program-indicators": false,
         },
         7: {
             "go-data": !hasOrgUnitMapping(organisationUnitMapping),
@@ -251,6 +280,13 @@ export const makeValidation = ({
             "dhis2-program": !hasOrgUnitMapping(organisationUnitMapping),
             json: !hasOrgUnitMapping(organisationUnitMapping),
             api: !hasOrgUnitMapping(organisationUnitMapping),
+            fhir: !hasOrgUnitMapping(organisationUnitMapping),
+            "xlsx-tabular-data": false,
+            "xlsx-form": false,
+            "dhis2-data-set": false,
+            "dhis2-indicators": false,
+            "dhis2-program-indicators": false,
+            "manual-dhis2-program-indicators": false,
         },
         8: {
             "go-data": !mandatoryGoDataMapped({
@@ -263,6 +299,13 @@ export const makeValidation = ({
             "dhis2-program": false,
             json: false,
             api: false,
+            fhir: false,
+            "xlsx-tabular-data": false,
+            "xlsx-form": false,
+            "dhis2-data-set": false,
+            "dhis2-indicators": false,
+            "dhis2-program-indicators": false,
+            "manual-dhis2-program-indicators": false,
         },
         9: {
             "go-data": !mandatoryAttributesMapped({
@@ -289,6 +332,17 @@ export const makeValidation = ({
                 destinationFields: metadata.destinationAttributes,
                 attributeMapping,
             }),
+            fhir: !mandatoryAttributesMapped({
+                destinationFields: metadata.destinationAttributes,
+                attributeMapping,
+            }),
+
+            "xlsx-tabular-data": false,
+            "xlsx-form": false,
+            "dhis2-data-set": false,
+            "dhis2-indicators": false,
+            "dhis2-program-indicators": false,
+            "manual-dhis2-program-indicators": false,
         },
         10: {
             "go-data": false,
@@ -297,6 +351,13 @@ export const makeValidation = ({
             "dhis2-program": false,
             json: false,
             api: false,
+            fhir: false,
+            "xlsx-tabular-data": false,
+            "xlsx-form": false,
+            "dhis2-data-set": false,
+            "dhis2-indicators": false,
+            "dhis2-program-indicators": false,
+            "manual-dhis2-program-indicators": false,
         },
         11: {
             "go-data": false,
@@ -305,6 +366,13 @@ export const makeValidation = ({
             "dhis2-program": false,
             json: false,
             api: false,
+            fhir: false,
+            "xlsx-tabular-data": false,
+            "xlsx-form": false,
+            "dhis2-data-set": false,
+            "dhis2-indicators": false,
+            "dhis2-program-indicators": false,
+            "manual-dhis2-program-indicators": false,
         },
         12: {
             "go-data": false,
@@ -313,6 +381,13 @@ export const makeValidation = ({
             "dhis2-program": false,
             json: false,
             api: false,
+            fhir: false,
+            "xlsx-tabular-data": false,
+            "xlsx-form": false,
+            "dhis2-data-set": false,
+            "dhis2-indicators": false,
+            "dhis2-program-indicators": false,
+            "manual-dhis2-program-indicators": false,
         },
         13: {
             "go-data": false,
@@ -321,6 +396,13 @@ export const makeValidation = ({
             "dhis2-program": false,
             json: false,
             api: false,
+            fhir: false,
+            "xlsx-tabular-data": false,
+            "xlsx-form": false,
+            "dhis2-data-set": false,
+            "dhis2-indicators": false,
+            "dhis2-program-indicators": false,
+            "manual-dhis2-program-indicators": false,
         },
         15: {
             "go-data": !mandatoryAttributesMapped({
@@ -347,6 +429,16 @@ export const makeValidation = ({
                 destinationFields: metadata.destinationEnrollmentAttributes,
                 attributeMapping: enrollmentMapping,
             }),
+            fhir: !mandatoryAttributesMapped({
+                destinationFields: metadata.destinationEnrollmentAttributes,
+                attributeMapping: enrollmentMapping,
+            }),
+            "xlsx-tabular-data": false,
+            "xlsx-form": false,
+            "dhis2-data-set": false,
+            "dhis2-indicators": false,
+            "dhis2-program-indicators": false,
+            "manual-dhis2-program-indicators": false,
         },
     };
     if (hasError) return hasError;

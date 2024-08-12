@@ -17,6 +17,7 @@
     "license": "ISC",
     "dependencies": {
         "@emotion/styled": "^11.10.6",
+        "@smile-cdr/fhirts": "^2.2.3",
         "axios": "0.27.2",
         "chakra-react-select": "3.3.7",
         "date-fns": "^2.29.3",

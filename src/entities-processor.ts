@@ -31,10 +31,6 @@ export const processPreviousInstances = ({
                     enrollments
                         .filter(({ program }) => program === currentProgram)
                         .flatMap(({ attributes }) => attributes),
-                    {
-                        attribute: "trackedEntityInstance",
-                        value: trackedEntityInstance,
-                    }
                 );
                 const uniqueAttributes = uniqBy("attribute", allAttributes);
                 let attributeKey = uniqueAttributes
@@ -64,10 +60,11 @@ export const processPreviousInstances = ({
                         value,
                     })),
                 ]);
+
                 currentOrgUnits.push([attributeKey, String(orgUnit)]);
                 if (enrollments.length > 0) {
                     const previousEnrollment = enrollments.filter(
-                        ({ program }) => program === currentProgram
+                        ({ program }) => program === currentProgram,
                     );
                     if (previousEnrollment.length > 0) {
                         currentEnrollments.push([
@@ -88,27 +85,26 @@ export const processPreviousInstances = ({
                                             ({ attribute, value }) => [
                                                 attribute,
                                                 value,
-                                            ]
-                                        )
+                                            ],
+                                        ),
                                     ),
-                                })
+                                }),
                             ),
                         ]);
                         const allEvents = previousEnrollment.flatMap(
                             ({ events }) =>
                                 events.filter((a) =>
                                     Object.keys(programStageMapping).includes(
-                                        a.programStage
-                                    )
-                                )
+                                        a.programStage,
+                                    ),
+                                ),
                         );
                         const uniqueEvents = Object.entries(
-                            groupBy("programStage", allEvents)
+                            groupBy("programStage", allEvents),
                         ).flatMap(([stage, availableEvents]) => {
                             const stageElements =
                                 programStageUniqueElements[stage];
                             const mapping = programStageMapping[stage];
-
                             if (mapping) {
                                 const elements = availableEvents.map(
                                     (event) => {
@@ -118,12 +114,16 @@ export const processPreviousInstances = ({
                                                 {
                                                     dataElement: "eventDate",
                                                     value: dayjs(
-                                                        event.eventDate
+                                                        event.eventDate,
                                                     ).format("YYYY-MM-DD"),
                                                 },
                                                 {
                                                     dataElement: "event",
                                                     value: event.event,
+                                                },
+                                                {
+                                                    dataElement: "enrollment",
+                                                    value: event.enrollment,
                                                 },
                                             ].map(({ dataElement, value }) => [
                                                 dataElement,
@@ -137,13 +137,13 @@ export const processPreviousInstances = ({
                                                             dataElement &&
                                                             stageElements &&
                                                             stageElements.includes(
-                                                                dataElement
+                                                                dataElement,
                                                             )
                                                         ) {
                                                             return value;
                                                         }
                                                         return [];
-                                                    }
+                                                    },
                                                 )
                                                 .sort()
                                                 .join("");
@@ -157,7 +157,7 @@ export const processPreviousInstances = ({
                                             ];
                                         }
                                         return [];
-                                    }
+                                    },
                                 );
                                 return [[stage, fromPairs(elements)]];
                             }
@@ -169,7 +169,7 @@ export const processPreviousInstances = ({
                         ]);
                     }
                 }
-            }
+            },
         );
     }
     return {

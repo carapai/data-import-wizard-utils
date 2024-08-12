@@ -1,9 +1,5 @@
-import { AxiosInstance } from "axios";
-import dayjs from "dayjs";
-import { diff } from "jiff";
-import { Dictionary, isArray, maxBy, minBy, unionBy, uniq } from "lodash";
-import { chunk, fromPairs, getOr, groupBy, isEmpty, uniqBy } from "lodash/fp";
-import { z } from "zod";
+import { Dictionary, isArray } from "lodash";
+import { fromPairs, isEmpty } from "lodash/fp";
 import {
     GO_DATA_EPIDEMIOLOGY_FIELDS,
     GO_DATA_EVENTS_FIELDS,
@@ -11,43 +7,10 @@ import {
     GO_DATA_PERSON_FIELDS,
     GO_DATA_RELATIONSHIP_FIELDS,
 } from "./constants";
-import {
-    Authentication,
-    CaseInvestigationTemplate,
-    Enrollment,
-    Event,
-    FlattenedInstance,
-    GODataTokenGenerationResponse,
-    GoDataEvent,
-    GoResponse,
-    IDataSet,
-    IEnrollment,
-    IGoData,
-    IGoDataData,
-    IMapping,
-    IProgram,
-    IProgramStage,
-    Mapping,
-    Metadata,
-    Option,
-    Processed,
-    StageMapping,
-    TrackedEntityInstance,
-    ValueType,
-} from "./interfaces";
-import {
-    evaluateMapping,
-    fetchRemote,
-    findUpdates,
-    getConflicts,
-    makeEvent,
-    postRemote,
-} from "./utils";
-import {
-    flattenGoData,
-    programUniqAttributes,
-    programUniqColumns,
-} from "./program";
+import { flattenGoData } from "./flatten-go-data";
+import { FlattenedInstance, GoResponse, IGoData, Mapping } from "./interfaces";
+import { getProgramUniqAttributes, getProgramUniqColumns } from "./program";
+import { evaluateMapping, findUpdates } from "./utils";
 export const convertToGoData = (
     data: Array<Partial<FlattenedInstance>>,
     organisationUnitMapping: Mapping,
@@ -55,19 +18,19 @@ export const convertToGoData = (
     goData: Partial<IGoData>,
     optionMapping: Record<string, string>,
     tokens: Dictionary<string>,
-    previousData: GoResponse
+    previousData: GoResponse,
 ) => {
-    const uniqAttributes = programUniqAttributes(attributeMapping);
-    const uniqColumns = programUniqColumns(attributeMapping);
+    const uniqAttributes = getProgramUniqAttributes(attributeMapping);
+    const uniqColumns = getProgramUniqColumns(attributeMapping);
     const flippedUnits = fromPairs(
         Object.entries(organisationUnitMapping).map(([unit, value]) => {
             return [value.value, unit];
-        })
+        }),
     );
     const flippedOptions = fromPairs(
         Object.entries(optionMapping).map(([option, value]) => {
             return [value, option];
-        })
+        }),
     );
 
     let errors: GoResponse = {
@@ -122,8 +85,8 @@ export const convertToGoData = (
                 flippedOptions,
                 flippedUnits,
                 uniqAttributes,
-                uniqColumns
-            )
+                uniqColumns,
+            ),
         );
         const [
             person,
@@ -147,7 +110,7 @@ export const convertToGoData = (
             const processedPerson = findUpdates(
                 prevPeople,
                 person.results,
-                uniqAttributes.join("")
+                uniqAttributes.join(""),
             );
             processed = {
                 ...processed,
@@ -172,7 +135,7 @@ export const convertToGoData = (
             const processedEpidemiology = findUpdates(
                 prevEpidemiology,
                 epidemiology.results,
-                uniqAttributes.join("")
+                uniqAttributes.join(""),
             );
             processed = {
                 ...processed,
@@ -199,7 +162,7 @@ export const convertToGoData = (
             const processedEvents = findUpdates(
                 prevEvents,
                 events.results,
-                uniqAttributes.join("")
+                uniqAttributes.join(""),
             );
             processed = {
                 ...processed,
@@ -226,7 +189,7 @@ export const convertToGoData = (
             const processedRelationships = findUpdates(
                 prevRelationships,
                 relationships.results,
-                uniqAttributes.join("")
+                uniqAttributes.join(""),
             );
             processed = {
                 ...processed,
@@ -253,7 +216,7 @@ export const convertToGoData = (
             const processedLab = findUpdates(
                 prevLab,
                 lab.results,
-                uniqAttributes.join("")
+                uniqAttributes.join(""),
             );
             processed = {
                 ...processed,
@@ -286,15 +249,15 @@ export const convertToGoData = (
                                     return [key, value[0].value];
                                 }
                                 return [];
-                            })
+                            }),
                         ),
                     };
-                }
+                },
             );
             const processedQuestionnaire = findUpdates(
                 processedPrevious,
                 questionnaire.results,
-                uniqAttributes.join("")
+                uniqAttributes.join(""),
             );
             processed = {
                 ...processed,

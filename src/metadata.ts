@@ -22,10 +22,11 @@ import {
 import {
     findTrackedEntityInstanceIds,
     findUniqAttributes,
-    flattenGoData,
     flattenProgram,
     getAttributes,
 } from "./program";
+
+import { flattenGoData } from "./flatten-go-data";
 
 const getParentName = (parent: Partial<DHIS2OrgUnit>) => {
     let first = parent;
@@ -131,7 +132,7 @@ export const makeMetadata = ({
                     return 1;
                 }
                 return 0;
-            }
+            },
         );
         results.destinationColumns = [...attributes, ...elements];
         const trackedEntityInstanceIds = findTrackedEntityInstanceIds({
@@ -144,7 +145,7 @@ export const makeMetadata = ({
 
         const uniqueAttributeValues = findUniqAttributes(
             data,
-            attributeMapping
+            attributeMapping,
         );
 
         const destinationStages =
@@ -172,7 +173,7 @@ export const makeMetadata = ({
                         return { id, value: id, label: name, code };
                     }
                     return [];
-                }
+                },
             );
         results.destinationColumns = dataSet.dataSetElements.flatMap(
             ({ dataElement }) =>
@@ -188,10 +189,10 @@ export const makeMetadata = ({
                             value: `${dataElement.id},${c.id}`,
                         };
                     }
-                })
+                }),
         );
         results.destinationOrgUnits = dataSet.organisationUnits.map(
-            ({ id, name, code }) => ({ code, label: name, value: id, id })
+            ({ id, name, code }) => ({ code, label: name, value: id, id }),
         );
 
         results.destinationCategories =
@@ -224,10 +225,10 @@ export const makeMetadata = ({
                 dataElement.categoryCombo?.categoryOptionCombos.map((c) => ({
                     label: `${dataElement.name}:${c.name}`,
                     value: `${dataElement.id},${c.id}`,
-                }))
+                })),
         );
         results.sourceOrgUnits = dataSet.organisationUnits?.map(
-            ({ id, name, code }) => ({ code, label: name, value: id, id })
+            ({ id, name, code }) => ({ code, label: name, value: id, id }),
         );
 
         results.sourceCategories = dataSet.categoryCombo?.categories.flatMap(
@@ -236,14 +237,14 @@ export const makeMetadata = ({
                     return { id, value: id, label: name, code };
                 }
                 return [];
-            }
+            },
         );
 
         results.sourceCategoryOptionCombos =
             dhis2DataSet.categoryCombo?.categoryOptionCombos.map(
                 ({ id, name, code }) => {
                     return { id, value: id, label: name, code };
-                }
+                },
             );
     } else if (
         mapping.dataSource === "dhis2-program" &&
@@ -281,7 +282,7 @@ export const makeMetadata = ({
                     return 1;
                 }
                 return 0;
-            }
+            },
         );
     } else if (mapping.dataSource === "go-data") {
         let units = [];
@@ -319,7 +320,7 @@ export const makeMetadata = ({
         if (goData && goData.caseInvestigationTemplate) {
             investigationTemplate = flattenGoData(
                 goData.caseInvestigationTemplate,
-                tokens
+                tokens,
             );
         }
         columns = [...attributes, ...columns, ...investigationTemplate];
@@ -360,8 +361,8 @@ export const makeMetadata = ({
         results.case = uniqBy(
             "value",
             GO_DATA_PERSON_FIELDS.filter(
-                ({ entity }) => entity && entity.indexOf("CASE") !== -1
-            )
+                ({ entity }) => entity && entity.indexOf("CASE") !== -1,
+            ),
         )
             .sort((a, b) => {
                 if (a.mandatory && !b.mandatory) {
@@ -391,8 +392,8 @@ export const makeMetadata = ({
         results.contact = uniqBy(
             "value",
             GO_DATA_PERSON_FIELDS.filter(
-                ({ entity }) => entity && entity.indexOf("CONTACT") !== -1
-            )
+                ({ entity }) => entity && entity.indexOf("CONTACT") !== -1,
+            ),
         )
             .sort((a, b) => {
                 if (a.mandatory && !b.mandatory) {
@@ -421,7 +422,7 @@ export const makeMetadata = ({
             });
         results.events = uniqBy("value", [
             ...attributes.filter(
-                ({ entity }) => entity && entity.indexOf("EVENT") !== -1
+                ({ entity }) => entity && entity.indexOf("EVENT") !== -1,
             ),
             ...GO_DATA_EVENTS_FIELDS,
         ])
@@ -499,6 +500,8 @@ export const makeMetadata = ({
             return a;
         });
         results.questionnaire = investigationTemplate;
+    } else if (mapping.dataSource === "fhir") {
+        console.log(data);
     } else {
         let columns: Array<Option> = [];
         if (
@@ -543,7 +546,7 @@ export const makeMetadata = ({
                         return option;
                     }
                     return [];
-                })
+                }),
             );
         }
         if (mapping.aggregate?.attributeOptionComboColumn) {
@@ -553,10 +556,10 @@ export const makeMetadata = ({
                     const unit = getOr(
                         "",
                         mapping.aggregate.attributeOptionComboColumn,
-                        d
+                        d,
                     );
                     return { label: unit, value: unit };
-                })
+                }),
             );
         }
 

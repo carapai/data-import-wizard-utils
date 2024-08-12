@@ -54,10 +54,13 @@ import {
     ValueType,
 } from "./interfaces";
 import {
-    fetchTrackedEntityInstances,
     findUniqAttributes,
-    flattenTrackedEntityInstances,
+    getProgramStageUniqColumns,
+    getProgramUniqAttributes,
 } from "./program";
+
+import { fetchTrackedEntityInstances } from "./fetch-tracked-entities";
+import { flattenEntitiesByEvents } from "./flatten-dhis2";
 import { generateUid } from "./uid";
 
 dayjs.extend(localeData);
@@ -70,7 +73,7 @@ dayjs.extend(weekOfYear);
 function updateLocaleAndWeekStart(
     date: Dayjs,
     locale: string,
-    weekStart: number
+    weekStart: number,
 ): Dayjs {
     dayjs.locale(locale);
     dayjs.updateLocale(locale, {
@@ -81,14 +84,14 @@ function updateLocaleAndWeekStart(
 
 export function modifyGoDataOu(
     node: GoDataOuTree,
-    parent: { id: string; name: string }
+    parent: { id: string; name: string },
 ) {
     if (!node.children || node.children.length === 0) {
         const { location } = node;
         return { title: location.name, value: location.id };
     }
     const modifiedChildren = node.children.map((chidNode) =>
-        modifyGoDataOu(chidNode, node.location)
+        modifyGoDataOu(chidNode, node.location),
     );
     const { location } = node;
     return {
@@ -100,7 +103,7 @@ export function modifyGoDataOu(
 
 export function getLeavesWithParentInfo(
     node: GoDataOuTree,
-    parentInfo: Array<{ id: string; name: string }> = []
+    parentInfo: Array<{ id: string; name: string }> = [],
 ): Array<{
     id: string;
     name: string;
@@ -113,7 +116,7 @@ export function getLeavesWithParentInfo(
         getLeavesWithParentInfo(child, [
             ...parentInfo,
             { name: node.location.name, id: node.location.id },
-        ])
+        ]),
     );
 
     return childLeaves;
@@ -123,7 +126,7 @@ export const makeFlipped = (dataMapping: Mapping) => {
     return fromPairs(
         Object.entries(dataMapping).map(([option, { value }]) => {
             return [value, option];
-        })
+        }),
     );
 };
 
@@ -150,8 +153,8 @@ export const makeRemoteApi = (authentication?: Partial<Authentication>) => {
             params,
             headers: fromPairs(
                 Object.values(authentication?.headers ?? {}).map(
-                    ({ param, value }) => [param, value]
-                )
+                    ({ param, value }) => [param, value],
+                ),
             ),
         });
     }
@@ -162,8 +165,8 @@ export const makeRemoteApi = (authentication?: Partial<Authentication>) => {
             params,
             headers: fromPairs(
                 Object.values(authentication?.headers ?? {}).map(
-                    ({ param, value }) => [param, value]
-                )
+                    ({ param, value }) => [param, value],
+                ),
             ),
         });
     }
@@ -197,7 +200,7 @@ export function getLowestLevelParents(data: IGoDataOrgUnit[]) {
     return grouped[maxGroup].map((child) => {
         const parents = getParent(data, child);
         const name = [...parents.map((x) => x.name).reverse(), child.name].join(
-            "/"
+            "/",
         );
         return { ...child, name };
     });
@@ -206,7 +209,7 @@ export function getLowestLevelParents(data: IGoDataOrgUnit[]) {
 export const fetchRemote = async <IData>(
     authentication: Partial<Authentication> | undefined,
     url: string = "",
-    params: { [key: string]: Param } = {}
+    params: { [key: string]: Param } = {},
 ) => {
     const api = makeRemoteApi({
         ...authentication,
@@ -220,7 +223,7 @@ export const postRemote = async <IData>(
     authentication: Partial<Authentication> | undefined,
     url: string = "",
     payload: Object,
-    params: { [key: string]: Partial<Param> } = {}
+    params: { [key: string]: Partial<Param> } = {},
 ) => {
     const api = makeRemoteApi({
         ...authentication,
@@ -234,7 +237,7 @@ export const putRemote = async <IData>(
     authentication: Partial<Authentication> | undefined,
     url: string = "",
     payload: Object,
-    params: { [key: string]: Partial<Param> } = {}
+    params: { [key: string]: Partial<Param> } = {},
 ) => {
     const api = makeRemoteApi({
         ...authentication,
@@ -247,7 +250,7 @@ export const putRemote = async <IData>(
 export const compareArrays = <TData>(
     source: TData[],
     destination: TData[],
-    key: keyof TData
+    key: keyof TData,
 ) => {
     const sourceKeys = source
         .map((val) => get(key, val))
@@ -271,11 +274,11 @@ export const compareArrays = <TData>(
 export const mergeArrays = <TData>(
     source: TData[],
     destination: TData[],
-    key: string
+    key: string,
 ) => {
     const sources = source.map((val: TData) => [get(key, val), val]);
     let destinations = fromPairs<TData>(
-        destination.map((val) => [get(key, val), val])
+        destination.map((val) => [get(key, val), val]),
     );
 
     sources.forEach(([key, value]) => {
@@ -286,7 +289,7 @@ export const mergeArrays = <TData>(
 
 export const updateObject = (
     state: Mapping,
-    { attribute, value, key }: Update
+    { attribute, value, key }: Update,
 ) => {
     return {
         ...state,
@@ -298,7 +301,7 @@ export const getToken = async <V>(
     authentication: Partial<Authentication> | undefined,
     tokenGenerationUsernameField: string,
     tokenGenerationPasswordField: string,
-    tokenGenerationURL: string
+    tokenGenerationURL: string,
 ) => {
     const {
         params,
@@ -323,7 +326,7 @@ export const pullRemoteData = async (
     goData: Partial<IGoData>,
     tokens: Dictionary<string>,
     token: string,
-    remoteAPI: AxiosInstance
+    remoteAPI: AxiosInstance,
 ) => {
     if (mapping.dataSource === "go-data" && goData.id) {
         const data = await fetchRemote<any[]>(
@@ -333,7 +336,7 @@ export const pullRemoteData = async (
                     auth: { param: "access_token", value: token },
                 },
             },
-            `api/outbreaks/${goData.id}/cases`
+            `api/outbreaks/${goData.id}/cases`,
         );
         return data.map((d) => {
             const processed = Object.entries(d).map(([key, value]) => {
@@ -361,11 +364,11 @@ export const pullRemoteData = async (
  */
 export function findDiff(
     object: { [key: string]: any },
-    base: { [key: string]: any }
+    base: { [key: string]: any },
 ) {
     function changes(
         object: { [key: string]: any },
-        base: { [key: string]: any }
+        base: { [key: string]: any },
     ) {
         return transform(object, function (result, value, key) {
             if (!isEqual(value, base[key])) {
@@ -382,7 +385,7 @@ export function findDiff(
 export function findDifference(
     destination: { [key: string]: any },
     source: { [key: string]: any },
-    attributes: Dictionary<Option>
+    attributes: Dictionary<Option>,
 ) {
     const sourceKeys = Object.keys(source);
     const destinationKeys = Object.keys(destination);
@@ -401,9 +404,6 @@ export function findDifference(
         if (isArray(destinationValue) && isArray(sourceValue)) {
             const firstDest = destinationValue[0];
             const firstSource = sourceValue[0];
-            // console.log(key, firstDest, firstSource);
-
-            // console.log(findDifference(firstDest, firstSource, attributes));
         } else if (isObject(destinationValue) && isObject(sourceValue)) {
         } else if (
             JSON.stringify(destinationValue) !== JSON.stringify(sourceValue)
@@ -432,7 +432,7 @@ export const getGoDataToken = async (mapping: Partial<IMapping>) => {
         {
             email: username,
             password,
-        }
+        },
     );
 
     if (response) {
@@ -442,11 +442,11 @@ export const getGoDataToken = async (mapping: Partial<IMapping>) => {
 
 export const fetchGoDataHierarchy = async (
     authentication: Partial<Authentication>,
-    locationIds: string[]
+    locationIds: string[],
 ) => {
     const hierarchy = await fetchRemote<GoDataOuTree[]>(
         authentication,
-        "api/locations/hierarchical"
+        "api/locations/hierarchical",
     );
     return hierarchy.flatMap((ou) => {
         if (locationIds.indexOf(ou.location.id) !== -1) {
@@ -459,7 +459,7 @@ export const fetchGoDataHierarchy = async (
 export const loadPreviousGoData = async (
     token: string,
     mapping: Partial<IMapping>,
-    outbreak?: Partial<IGoData>
+    outbreak?: Partial<IGoData>,
 ) => {
     const {
         params,
@@ -482,7 +482,7 @@ export const loadPreviousGoData = async (
                     },
                 },
             },
-            `api/outbreaks/${mapping.program.remoteProgram}`
+            `api/outbreaks/${mapping.program.remoteProgram}`,
         );
     }
 
@@ -493,7 +493,7 @@ export const loadPreviousGoData = async (
                 auth: { param: "access_token", value: token },
             },
         },
-        "api/filter-mappings"
+        "api/filter-mappings",
     );
 
     const tokens = await fetchRemote<{
@@ -507,11 +507,11 @@ export const loadPreviousGoData = async (
                 auth: { param: "access_token", value: token },
             },
         },
-        "api/languages/english_us/language-tokens"
+        "api/languages/english_us/language-tokens",
     );
 
     const actualTokens = fromPairs(
-        tokens.tokens.map(({ token, translation }) => [token, translation])
+        tokens.tokens.map(({ token, translation }) => [token, translation]),
     );
 
     const organisations = await fetchRemote<IGoDataOrgUnit[]>(
@@ -521,7 +521,7 @@ export const loadPreviousGoData = async (
                 auth: { param: "access_token", value: token },
             },
         },
-        "api/locations"
+        "api/locations",
     );
 
     const goDataOptions = await fetchRemote<GODataOption[]>(
@@ -529,7 +529,7 @@ export const loadPreviousGoData = async (
             ...rest,
             params: { auth: { param: "access_token", value: token } },
         },
-        "api/reference-data"
+        "api/reference-data",
     );
 
     const realGoDataOptions = goDataOptions.map(({ id }) => {
@@ -541,7 +541,7 @@ export const loadPreviousGoData = async (
             ...rest,
             params: { auth: { param: "access_token", value: token } },
         },
-        outbreak.locationIds
+        outbreak.locationIds,
     );
 
     return {
@@ -584,7 +584,7 @@ export const findChanges = ({
                 const keys = Object.keys(v);
                 const sourceValue = keys.map((k) => v[k]).join("");
                 const destValue = destinationValue.find(
-                    (d: any) => keys.map((k) => d[k]).join("") === sourceValue
+                    (d: any) => keys.map((k) => d[k]).join("") === sourceValue,
                 );
                 if (!destValue) {
                     return v;
@@ -614,7 +614,7 @@ export const evaluateMapping = (
     flippedOptions: Dictionary<string>,
     flippedUnits: Dictionary<string>,
     uniqAttributes: string[],
-    uniqColumns: string[]
+    uniqColumns: string[],
 ) => {
     let errors: any[] = [];
     let conflicts: any[] = [];
@@ -643,7 +643,7 @@ export const evaluateMapping = (
                             (v: Option) =>
                                 v.code === value ||
                                 v.id === value ||
-                                v.value === value
+                                v.value === value,
                         ) !== -1
                     ) {
                         result = { ...result, success: true };
@@ -722,7 +722,7 @@ export const evaluateMapping = (
                     }
                 }
             }
-        }
+        },
     );
 
     if (isEmpty(results)) {
@@ -739,7 +739,7 @@ export const evaluateMapping = (
 export const findUpdates = (
     previousData: any[],
     currentData: any,
-    attribute: string
+    attribute: string,
 ) => {
     let result: { update: any[]; insert: any[] } = {
         insert: [],
@@ -754,7 +754,7 @@ export const findUpdates = (
             ({ op, path }) =>
                 ["add", "replace", "copy"].indexOf(op) !== -1 &&
                 path !== `/${attribute}` &&
-                path !== `/addresses/0`
+                path !== `/addresses/0`,
         );
         if (filteredDifferences.length > 0) {
             return {
@@ -786,7 +786,7 @@ export const groupGoData4Insert = async (
     setMessage: React.Dispatch<React.SetStateAction<string>>,
     setInserted: React.Dispatch<React.SetStateAction<any[]>>,
     setUpdates: React.Dispatch<React.SetStateAction<any[]>>,
-    setErrors: React.Dispatch<React.SetStateAction<any[]>>
+    setErrors: React.Dispatch<React.SetStateAction<any[]>>,
 ) => {
     const {
         params,
@@ -806,17 +806,17 @@ export const groupGoData4Insert = async (
             {
                 email: username,
                 password,
-            }
+            },
         );
     } catch (error) {}
     if (response) {
         const token = response.id;
         for (const p of inserts.person) {
             const epidemiology = inserts.epidemiology.find(
-                (x) => x.visualId === p.visualId
+                (x) => x.visualId === p.visualId,
             );
             let questionnaireAnswers = inserts.questionnaire.find(
-                (x) => x.visualId === p.visualId
+                (x) => x.visualId === p.visualId,
             );
 
             if (questionnaireAnswers) {
@@ -825,7 +825,7 @@ export const groupGoData4Insert = async (
                     Object.entries(rest).map(([key, value]) => [
                         key,
                         [{ value }],
-                    ])
+                    ]),
                 );
             } else {
                 questionnaireAnswers = {};
@@ -849,7 +849,7 @@ export const groupGoData4Insert = async (
                                 param: "access_token",
                                 value: token,
                             },
-                        }
+                        },
                     );
                     setInserted((prev) => [...prev, response]);
                     const { id } = response;
@@ -867,17 +867,17 @@ export const groupGoData4Insert = async (
 
         for (const p of updates.person) {
             const epidemiology1 = inserts.epidemiology.find(
-                (x) => x.visualId === p.visualId
+                (x) => x.visualId === p.visualId,
             );
             const epidemiology2 = updates.epidemiology.find(
-                (x) => x.visualId === p.visualId
+                (x) => x.visualId === p.visualId,
             );
 
             const q1 = inserts.questionnaire.find(
-                (x) => x.visualId === p.visualId
+                (x) => x.visualId === p.visualId,
             );
             const q2 = updates.questionnaire.find(
-                (x) => x.visualId === p.visualId
+                (x) => x.visualId === p.visualId,
             );
             let epidemiology = {};
             let questionnaireAnswers = {};
@@ -893,7 +893,7 @@ export const groupGoData4Insert = async (
                     Object.entries(rest).map(([key, value]) => [
                         key,
                         [{ value }],
-                    ])
+                    ]),
                 );
             } else if (q2) {
                 const { visualId: v1, ...rest } = q2;
@@ -901,7 +901,7 @@ export const groupGoData4Insert = async (
                     Object.entries(rest).map(([key, value]) => [
                         key,
                         [{ value }],
-                    ])
+                    ]),
                 );
             }
             setMessage(() => `Updating person with id ${p.visualId}`);
@@ -917,7 +917,7 @@ export const groupGoData4Insert = async (
                             param: "access_token",
                             value: token,
                         },
-                    }
+                    },
                 );
                 setUpdates((prev) => [...prev, response3]);
             } catch (error) {
@@ -934,7 +934,7 @@ export const groupGoData4Insert = async (
             const id = prev[l.visualId];
             if (id) {
                 setMessage(
-                    () => `Creating lab result for peron with id ${l.visualId}`
+                    () => `Creating lab result for peron with id ${l.visualId}`,
                 );
                 try {
                     const response2 = await postRemote(
@@ -946,7 +946,7 @@ export const groupGoData4Insert = async (
                                 param: "access_token",
                                 value: token,
                             },
-                        }
+                        },
                     );
                     setInserted((prev) => [...prev, response2]);
                 } catch (error) {
@@ -971,7 +971,7 @@ export const groupGoData4Insert = async (
                 if (id) {
                     setMessage(
                         () =>
-                            `Updating questionnaire  for person with id ${q.visualId}`
+                            `Updating questionnaire  for person with id ${q.visualId}`,
                     );
                     try {
                         const response2 = await putRemote(
@@ -983,7 +983,7 @@ export const groupGoData4Insert = async (
                                     param: "access_token",
                                     value: token,
                                 },
-                            }
+                            },
                         );
                         setUpdates((prev) => [...prev, response2]);
                     } catch (error) {
@@ -1012,7 +1012,7 @@ export const groupGoData4Insert = async (
                 if (id) {
                     setMessage(
                         () =>
-                            `Updating questionnaire  for person with id ${q.visualId}`
+                            `Updating questionnaire  for person with id ${q.visualId}`,
                     );
                     try {
                         const response2 = await putRemote(
@@ -1024,7 +1024,7 @@ export const groupGoData4Insert = async (
                                     param: "access_token",
                                     value: token,
                                 },
-                            }
+                            },
                         );
                         setUpdates((prev) => [...prev, response2]);
                     } catch (error) {
@@ -1046,7 +1046,7 @@ export const groupGoData4Insert = async (
             const id = prev[l.visualId];
             if (id) {
                 setMessage(
-                    () => `Updating lab result for peron with id ${l.id}`
+                    () => `Updating lab result for peron with id ${l.id}`,
                 );
                 try {
                     const response2 = await putRemote(
@@ -1058,7 +1058,7 @@ export const groupGoData4Insert = async (
                                 param: "access_token",
                                 value: token,
                             },
-                        }
+                        },
                     );
                     setUpdates((prev) => [...prev, response2]);
                 } catch (error) {
@@ -1111,7 +1111,7 @@ export const processLineList = ({
         };
         const { validData: val, invalidData: inv } = validateAggValue(
             aggValues,
-            periodType
+            periodType,
         );
 
         if (val) {
@@ -1173,7 +1173,7 @@ export const processElements = ({
 
             const { validData: val, invalidData: inv } = validateAggValue(
                 result,
-                periodType
+                periodType,
             );
 
             if (val) {
@@ -1299,7 +1299,7 @@ export const fixedPeriods = [
 
 export const createOptions2 = (
     array: Array<string>,
-    array2: Array<string>
+    array2: Array<string>,
 ): Array<Option> => {
     return array.map((value, index) => {
         return { label: value, value: array2[index] };
@@ -1354,7 +1354,7 @@ export const processDataSet = ({
 
             const { validData: val, invalidData: inv } = validateAggValue(
                 aggValues,
-                periodType
+                periodType,
             );
 
             if (val) {
@@ -1404,7 +1404,7 @@ export const processIndicators = ({
                 }
                 const { validData: val, invalidData: inv } = validateAggValue(
                     result,
-                    periodType
+                    periodType,
                 );
                 if (val) {
                     validData = [...validData, ...val];
@@ -1439,7 +1439,6 @@ export const validateValue = ({
     value: any;
 }> => {
     if (mapping.value) {
-        console.log(option);
         const validation = ValueType[option.valueType];
         let value = getOr("", mapping.value, data);
         if (mapping.isSpecific) {
@@ -1460,7 +1459,7 @@ export const validateValue = ({
             if (
                 option.availableOptions.findIndex(
                     (v: Option) =>
-                        v.code === value || v.id === value || v.value === value
+                        v.code === value || v.id === value || v.value === value,
                 ) !== -1
             ) {
                 return { success: true, value, errors: [], conflicts: [] };
@@ -1642,6 +1641,7 @@ export const makeEvent = ({
     dataElements,
     uniqueKey,
     registration,
+    dueDateColumn,
 }: {
     eventDateColumn: string;
     data: any;
@@ -1660,15 +1660,23 @@ export const makeEvent = ({
     dataElements: Dictionary<Option>;
     uniqueKey: string;
     registration: boolean;
+    dueDateColumn?: string;
 }): Partial<{
     errors: any[];
     conflicts: any[];
     event: PartialEvent;
 }> => {
     const possibleEventDate = dayjs(getOr("", eventDateColumn, data));
+    const possibleDueDate = dayjs(getOr("", dueDateColumn, data));
     let dataValues = {};
     let conflicts: any[] = [];
     let errors: any[] = [];
+    let dueDate = "";
+
+    if (possibleDueDate.isValid()) {
+        dueDate = possibleDueDate.format("YYYY-MM-DD");
+    }
+
     if (possibleEventDate.isValid()) {
         const eventDate = possibleEventDate.format("YYYY-MM-DD");
         let eventGeometry = getGeometry({
@@ -1702,14 +1710,14 @@ export const makeEvent = ({
                         ...a,
                         trackedEntityInstance,
                         id: `${a.id}${trackedEntityInstance}${uniqueKey}`,
-                    }))
+                    })),
                 );
                 errors = errors.concat(
                     errs.map((a) => ({
                         ...a,
                         trackedEntityInstance,
                         id: `${a.id}${trackedEntityInstance}${uniqueKey}`,
-                    }))
+                    })),
                 );
             }
         });
@@ -1721,6 +1729,10 @@ export const makeEvent = ({
             event: eventId,
             dataValues,
         };
+
+        if (dueDate) {
+            event = { ...event, dueDate };
+        }
 
         if (!isEmpty(eventGeometry)) {
             event = { ...event, geometry: eventGeometry };
@@ -1785,7 +1797,7 @@ export const getConflicts = (error: DHIS2Response) => {
                 return reference;
             }
             return [];
-        }
+        },
     );
     return {
         conflicts,
@@ -1803,34 +1815,33 @@ export const processInstances = async (
         trackedEntityInstances,
         mapping,
         attributeMapping,
-        engine,
+        api,
         version,
         program,
         optionMapping,
         organisationUnitMapping,
         programStageMapping,
-        programStageUniqueElements,
-        programUniqAttributes,
         enrollmentMapping,
         setMessage,
     }: {
         attributeMapping: Mapping;
         mapping: Partial<IMapping>;
         trackedEntityInstances: Array<Partial<TrackedEntityInstance>>;
-        engine: any;
+        api: Partial<{ engine: any; axios: AxiosInstance }>;
         version: number;
         program: Partial<IProgram>;
         optionMapping: Record<string, string>;
         organisationUnitMapping: Mapping;
         programStageMapping: StageMapping;
         enrollmentMapping: Mapping;
-        programStageUniqueElements: Dictionary<string[]>;
-        programUniqAttributes: string[];
         setMessage: React.Dispatch<React.SetStateAction<string>>;
     },
-    callback: (processedData: Processed) => Promise<void>
+    callback: (processedData: Processed) => Promise<void>,
 ) => {
     let stages: string[] = [];
+    const programUniqAttributes = getProgramUniqAttributes(attributeMapping);
+    const programStageUniqueElements =
+        getProgramStageUniqColumns(programStageMapping);
 
     if (
         mapping.program?.program === mapping.program?.remoteProgram &&
@@ -1840,13 +1851,7 @@ export const processInstances = async (
         stages = Object.keys(programStageMapping);
     }
 
-    const currentData = flattenTrackedEntityInstances(
-        {
-            trackedEntityInstances,
-        },
-        "ALL",
-        stages
-    );
+    const currentData = flattenEntitiesByEvents(trackedEntityInstances);
     let instances: Array<Partial<TrackedEntityInstance>> = [];
 
     let uniqueAttributeValues: any[] = [];
@@ -1862,7 +1867,7 @@ export const processInstances = async (
             ({ trackedEntityInstance }) => {
                 if (trackedEntityInstance) return trackedEntityInstance;
                 return [];
-            }
+            },
         );
     } else {
         const { info } = attributeMapping;
@@ -1872,18 +1877,21 @@ export const processInstances = async (
                 ({ trackedEntityInstance }) => {
                     if (trackedEntityInstance) return trackedEntityInstance;
                     return [];
-                }
+                },
             );
         } else {
             uniqueAttributeValues = findUniqAttributes(
                 currentData,
-                attributeMapping
+                attributeMapping,
             );
         }
         if (currentData.length > 0) {
+            setMessage(
+                () => "Fetching previous data for tracked entity instances",
+            );
             const { trackedEntityInstances } =
                 await fetchTrackedEntityInstances({
-                    api: { engine },
+                    api,
                     program: mapping.program?.program,
                     additionalParams: {},
                     uniqueAttributeValues,
@@ -1891,6 +1899,7 @@ export const processInstances = async (
                     trackedEntityInstances: trackedInstanceIds,
                     fields: "*",
                     pageSize: "50",
+                    setMessage,
                 });
             instances = trackedEntityInstances;
         }
@@ -1906,7 +1915,7 @@ export const processInstances = async (
     });
 
     setMessage(() => `Converting data to destination DHIS2`);
-    const convertedData = await convertToDHIS2({
+    const convertedData = convertToDHIS2({
         previousData: previous,
         data: currentData,
         mapping: mapping,
@@ -1948,7 +1957,7 @@ export const validatePeriod = (period: string, periodType: string): boolean => {
 
 export const validateAggValue = (
     aggValue: AggDataValue,
-    periodType: string
+    periodType: string,
 ) => {
     let validData: AggDataValue[] = [];
     let invalidData: any[] = [];
@@ -2127,3 +2136,67 @@ export const validateAggValue = (
 //         }).id,
 //     };
 // };
+
+export function buildParameters(mapping: Partial<IMapping>) {
+    let additionalParams = {};
+
+    if (mapping.dhis2SourceOptions?.ous) {
+        additionalParams = {
+            ...additionalParams,
+            ou: mapping.dhis2SourceOptions.ous,
+        };
+    }
+    if (
+        mapping.program.isTracker &&
+        mapping.dhis2SourceOptions?.trackedEntityInstance
+    ) {
+        additionalParams = {
+            ...additionalParams,
+            trackedEntityInstance:
+                mapping.dhis2SourceOptions.trackedEntityInstance,
+        };
+    }
+
+    if (
+        mapping.dhis2SourceOptions &&
+        mapping.dhis2SourceOptions.period &&
+        mapping.dhis2SourceOptions.period.length > 0 &&
+        mapping.dhis2SourceOptions.period[0].startDate &&
+        mapping.dhis2SourceOptions.period[0].endDate &&
+        mapping.dhis2SourceOptions.searchPeriod === "enrollmentDate"
+    ) {
+        const programStartDate = mapping.dhis2SourceOptions.period[0].startDate;
+        const programEndDate = mapping.dhis2SourceOptions.period[0].endDate;
+
+        additionalParams = {
+            ...additionalParams,
+            programEndDate,
+            programStartDate,
+        };
+    }
+
+    return additionalParams;
+}
+
+export const isExcel = (mapping: Partial<IMapping>) => {
+    return (
+        [
+            "csv-line-list",
+            "xlsx-line-list",
+            "xlsx-tabular-data",
+            "xlsx-form",
+        ].indexOf(mapping.dataSource) !== -1
+    );
+};
+
+export const isDHIS2 = (mapping: Partial<IMapping>) => {
+    return (
+        [
+            "dhis2-data-set",
+            "dhis2-indicators",
+            "dhis2-program-indicators",
+            "dhis2-program",
+            "manual-dhis2-program-indicators",
+        ].indexOf(mapping.dataSource) !== -1
+    );
+};

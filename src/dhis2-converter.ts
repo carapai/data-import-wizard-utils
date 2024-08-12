@@ -1,6 +1,7 @@
 import dayjs from "dayjs";
 import { Dictionary } from "lodash";
 import { fromPairs, getOr, groupBy, isEmpty } from "lodash/fp";
+import { processEvents } from "./events-converter";
 import {
     Enrollment,
     Event,
@@ -11,18 +12,14 @@ import {
     StageMapping,
     TrackedEntityInstance,
 } from "./interfaces";
-import { generateUid } from "./uid";
-import { findChanges, getGeometry, processAttributes } from "./utils";
 import {
     getAttributes,
     getDataElements,
-    programStageUniqColumns,
-    programStageUniqElements,
-    programUniqAttributes,
-    programUniqColumns,
+    getProgramUniqColumns,
 } from "./program";
-import { processEvents } from "./events-converter";
-export const convertToDHIS2 = async ({
+import { generateUid } from "./uid";
+import { findChanges, getGeometry, processAttributes } from "./utils";
+export const convertToDHIS2 = ({
     program,
     previousData,
     data,
@@ -58,19 +55,15 @@ export const convertToDHIS2 = async ({
     const { enrollmentAttributes, trackedEntityAttributes } =
         getAttributes(program);
     const aAttributes = fromPairs(
-        trackedEntityAttributes.map((a) => [a.value, a])
+        trackedEntityAttributes.map((a) => [a.value, a]),
     );
     const eAttributes = fromPairs(
-        enrollmentAttributes.map((a) => [a.value, a])
+        enrollmentAttributes.map((a) => [a.value, a]),
     );
     const allElements = fromPairs(
-        getDataElements(program).map((e) => [e.value, e])
+        getDataElements(program).map((e) => [e.value, e]),
     );
-    console.log(allElements);
-    const uniqAttributes = programUniqAttributes(attributeMapping);
-    const uniqStageElements = programStageUniqElements(programStageMapping);
-    const uniqColumns = programUniqColumns(attributeMapping);
-    const uniqStageColumns = programStageUniqColumns(programStageMapping);
+    const uniqColumns = getProgramUniqColumns(attributeMapping);
     const trackedEntityGeometryType =
         program.trackedEntityType?.featureType ?? "";
 
@@ -81,12 +74,13 @@ export const convertToDHIS2 = async ({
         selectIncidentDatesInFuture,
         programTrackedEntityAttributes,
         programStages,
+        registration,
     } = program;
 
     const stages = fromPairs(
         programStages.map((programStage) => {
             return [programStage.id, programStage];
-        })
+        }),
     );
 
     const {
@@ -104,9 +98,8 @@ export const convertToDHIS2 = async ({
     } = attributeMapping ?? {};
 
     const {
-        info: { customOrgUnitColumn, orgUnitColumn } = {
-            customOrgUnitColumn: "",
-            orgUnitColumn: "",
+        info: { orgUnitColumn } = {
+            orgUnitColumn: "orgUnit",
         },
     } = organisationUnitMapping;
     const {
@@ -125,19 +118,17 @@ export const convertToDHIS2 = async ({
         },
         ...enrollmentAttributeMapping
     } = enrollmentMapping;
-
     const flippedUnits = fromPairs(
         Object.entries(organisationUnitMapping).map(([unit, value]) => {
             return [value.value, unit];
-        })
+        }),
     );
 
     const flippedOptions = fromPairs(
         Object.entries(optionMapping).map(([option, value]) => {
             return [value, option];
-        })
+        }),
     );
-
     let groupedData: Dictionary<any[]> = {};
     if (trackedEntityInstanceColumn) {
         groupedData = groupBy(trackedEntityInstanceColumn, data);
@@ -148,20 +139,21 @@ export const convertToDHIS2 = async ({
                     .map((column) => getOr("", column, item))
                     .sort()
                     .join(""),
-            data
+            data,
         );
     } else {
         groupedData = groupBy(
             "id",
             data.map((d) => {
                 return { id: generateUid(), ...d };
-            })
+            }),
         );
     }
     const processed = Object.entries(groupedData).flatMap(
         ([uniqueKey, current]) => {
             let results: {
                 enrollments: Array<Partial<Enrollment>>;
+                enrollmentUpdates: Array<Partial<Enrollment>>;
                 trackedEntity: Partial<TrackedEntityInstance>;
                 events: Array<Partial<Event>>;
                 eventUpdates: Array<Partial<Event>>;
@@ -174,6 +166,7 @@ export const convertToDHIS2 = async ({
                 events: [],
                 eventUpdates: [],
                 trackedEntityUpdate: {},
+                enrollmentUpdates: [],
                 errors: [],
                 conflicts: [],
             };
@@ -185,19 +178,18 @@ export const convertToDHIS2 = async ({
                 let previousTrackedEntity = getOr(
                     "",
                     uniqueKey,
-                    previousData.trackedEntities
+                    previousData.trackedEntities,
                 );
                 let previousEnrollments = getOr(
                     [],
                     uniqueKey,
-                    previousData.enrollments
+                    previousData.enrollments,
                 );
                 const previousAttributes = getOr(
                     [],
                     uniqueKey,
-                    previousData.attributes
+                    previousData.attributes,
                 );
-
                 const trackedEntityGeometry = getGeometry({
                     data: current[0],
                     geometryColumn: instanceGeometryColumn,
@@ -226,7 +218,7 @@ export const convertToDHIS2 = async ({
                     previousAttributes.map(({ attribute, value }) => [
                         attribute,
                         value,
-                    ])
+                    ]),
                 );
 
                 const differences = findChanges({
@@ -274,7 +266,7 @@ export const convertToDHIS2 = async ({
                     previousTrackedEntity = getOr(
                         generateUid(),
                         trackedEntityInstanceColumn,
-                        current[0]
+                        current[0],
                     );
                     if (previousOrgUnit) {
                         results = {
@@ -317,15 +309,15 @@ export const convertToDHIS2 = async ({
                 if (enrollmentDateColumn && results.errors.length === 0) {
                     const groupedByEnrollmentDate = groupBy(
                         enrollmentDateColumn,
-                        current
+                        current,
                     );
 
                     for (const [eDate, enrollmentData] of Object.entries(
-                        groupedByEnrollmentDate
+                        groupedByEnrollmentDate,
                     )) {
                         let previousEnrollment: IEnrollment =
-                            previousEnrollments.find(
-                                (a) => a.enrollmentDate === eDate
+                            previousEnrollments.find((a) =>
+                                dayjs(a.enrollmentDate).isSame(dayjs(eDate)),
                             );
                         if (
                             previousOrgUnit &&
@@ -334,7 +326,11 @@ export const convertToDHIS2 = async ({
                         ) {
                             const enrollmentDate = dayjs(eDate);
                             const incidentDate = dayjs(
-                                getOr("", incidentDateColumn, enrollmentData[0])
+                                getOr(
+                                    "",
+                                    incidentDateColumn,
+                                    enrollmentData[0],
+                                ),
                             );
                             if (
                                 enrollmentDate.isValid() &&
@@ -351,7 +347,7 @@ export const convertToDHIS2 = async ({
                                         ...results,
                                         errors: results.errors.concat({
                                             value: `Date ${enrollmentDate.format(
-                                                "YYYY-MM-DD"
+                                                "YYYY-MM-DD",
                                             )} is in the future`,
                                             attribute: `Enrollment date for ${uniqueKey}`,
                                             id: generateUid(),
@@ -369,7 +365,7 @@ export const convertToDHIS2 = async ({
                                         ...results,
                                         errors: results.errors.concat({
                                             value: `Date ${incidentDate.format(
-                                                "YYYY-MM-DD"
+                                                "YYYY-MM-DD",
                                             )} is in the future`,
                                             attribute: `Incident date for ${uniqueKey}`,
                                             id: generateUid(),
@@ -404,7 +400,7 @@ export const convertToDHIS2 = async ({
                                             enrollment: generateUid(),
                                             enrollmentDate:
                                                 enrollmentDate.format(
-                                                    "YYYY-MM-DD"
+                                                    "YYYY-MM-DD",
                                                 ),
                                             attributes: {},
                                         };
@@ -417,11 +413,11 @@ export const convertToDHIS2 = async ({
                                                 orgUnit: previousOrgUnit,
                                                 enrollmentDate:
                                                     enrollmentDate.format(
-                                                        "YYYY-MM-DD"
+                                                        "YYYY-MM-DD",
                                                     ),
                                                 incidentDate:
                                                     enrollmentDate.format(
-                                                        "YYYY-MM-DD"
+                                                        "YYYY-MM-DD",
                                                     ),
                                                 enrollment:
                                                     previousEnrollment.enrollment,
@@ -433,7 +429,7 @@ export const convertToDHIS2 = async ({
                                                     ([attribute, value]) => ({
                                                         attribute,
                                                         value,
-                                                    })
+                                                    }),
                                                 ),
                                             };
                                         if (!isEmpty(enrollmentGeometry)) {
@@ -446,7 +442,7 @@ export const convertToDHIS2 = async ({
                                             ...results,
                                             enrollments:
                                                 results.enrollments.concat(
-                                                    currentEnrollment
+                                                    currentEnrollment,
                                                 ),
                                         };
                                     }
@@ -493,6 +489,13 @@ export const convertToDHIS2 = async ({
                                         value,
                                     })),
                                 };
+                                results = {
+                                    ...results,
+                                    enrollmentUpdates:
+                                        results.enrollmentUpdates.concat(
+                                            currentEnrollment,
+                                        ),
+                                };
                             }
 
                             results = {
@@ -519,13 +522,13 @@ export const convertToDHIS2 = async ({
                                 previousEvents: getOr(
                                     {},
                                     uniqueKey,
-                                    previousData.dataElements
+                                    previousData.dataElements,
                                 ),
                                 stages,
                                 options: flippedOptions,
                                 dataElements: allElements,
                                 uniqueKey,
-                                registration: false,
+                                registration,
                             });
 
                             results = {
@@ -549,7 +552,7 @@ export const convertToDHIS2 = async ({
                         previousEvents: getOr(
                             {},
                             uniqueKey,
-                            previousData.dataElements
+                            previousData.dataElements,
                         ),
                         stages,
                         options: flippedOptions,
@@ -572,7 +575,7 @@ export const convertToDHIS2 = async ({
                 conflicts: results.conflicts.filter((a) => !!a),
                 errors: results.errors.filter((a) => !!a),
             };
-        }
+        },
     );
 
     const trackedEntityInstances = processed.flatMap(({ trackedEntity }) => {
@@ -581,6 +584,9 @@ export const convertToDHIS2 = async ({
     });
 
     const enrollments = processed.flatMap(({ enrollments }) => enrollments);
+    const enrollmentUpdates = processed.flatMap(
+        ({ enrollmentUpdates }) => enrollmentUpdates,
+    );
     const errors = processed.flatMap(({ errors }) => errors);
     const conflicts = processed.flatMap(({ conflicts }) => conflicts);
     const events = processed.flatMap(({ events }) => events);
@@ -588,7 +594,7 @@ export const convertToDHIS2 = async ({
         ({ trackedEntityUpdate }) => {
             if (!isEmpty(trackedEntityUpdate)) return trackedEntityUpdate;
             return [];
-        }
+        },
     );
     const eventUpdates = processed.flatMap(({ eventUpdates }) => eventUpdates);
     return {
@@ -596,6 +602,7 @@ export const convertToDHIS2 = async ({
         events,
         enrollments,
         trackedEntityInstanceUpdates,
+        enrollmentUpdates,
         eventUpdates,
         errors,
         conflicts,

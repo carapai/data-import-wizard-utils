@@ -1,3 +1,4 @@
+import { AxiosInstance } from "axios";
 import { OptionBase } from "chakra-react-select";
 import { Dictionary } from "lodash";
 import type {
@@ -22,7 +23,8 @@ export type DataSource =
     | "dhis2-indicators"
     | "dhis2-program-indicators"
     | "dhis2-program"
-    | "manual-dhis2-program-indicators";
+    | "manual-dhis2-program-indicators"
+    | "fhir";
 export type ImportType =
     | "individual"
     | "aggregate"
@@ -71,6 +73,7 @@ export type StageMapping = {
 export type Processed = {
     trackedEntityInstances: Array<Partial<TrackedEntityInstance>>;
     enrollments: Array<Partial<Enrollment>>;
+    enrollmentUpdates: Array<Partial<Enrollment>>;
     events: Array<Partial<Event>>;
     trackedEntityInstanceUpdates: Array<Partial<TrackedEntityInstance>>;
     eventUpdates: Array<Partial<Event>>;
@@ -83,12 +86,8 @@ export interface CommonIdentifier {
     code: string;
 }
 
-export interface ITrackedEntityTypeAttribute {
-    trackedEntityAttribute: ITrackedEntityAttribute;
-    id: string;
-}
 export interface TrackedEntityType extends CommonIdentifier {
-    trackedEntityTypeAttributes: ITrackedEntityTypeAttribute[];
+    trackedEntityTypeAttributes: IProgramTrackedEntityAttribute[];
     featureType: string;
     id: string;
 }
@@ -118,7 +117,7 @@ export const ValueType: {
     DATETIME: z
         .string()
         .regex(
-            /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2}(?:\.\d*)?)((-(\d{2}):(\d{2})|Z)?)$/
+            /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2}(?:\.\d*)?)((-(\d{2}):(\d{2})|Z)?)$/,
         ),
     TIME: z.string().regex(/^(\d{2}):(\d{2})/),
     NUMBER: z.preprocess(Number, z.number()),
@@ -180,16 +179,22 @@ export type MetadataOptions = {
 
 export interface IProgramMapping {
     program: string;
-    programType: string;
     trackedEntityType: string;
     metadataApiAuthentication: Partial<Authentication>;
     onlyEnrollOnce: boolean;
     metadataOptions: MetadataOptions;
-    withoutRegistration: boolean;
     responseKey: string;
     remoteProgram: string;
     selectIncidentDatesInFuture: boolean;
     selectEnrollmentDatesInFuture: boolean;
+    createEntities: boolean;
+    updateEntities: boolean;
+    createEnrollments: boolean;
+    updateEnrollments: boolean;
+    createEvents: boolean;
+    updateEvents: boolean;
+    isTracker: boolean;
+    remoteIsTracker: boolean;
 }
 
 export interface IAggregateMapping {
@@ -235,6 +240,7 @@ export interface IMapping {
     dhis2SourceOptions: Partial<DHIS2SourceOptions>;
     dhis2DestinationOptions: Partial<DHIS2DestinationOptions>;
     chunkSize: number;
+    version: string;
 }
 
 export interface IProgramStage {
@@ -1072,6 +1078,7 @@ export type PartialEvent = Partial<{
     dataValues: Dictionary<string>;
     geometry: any;
     status: string;
+    dueDate?: string;
 }>;
 
 export type OtherProcessed = {
@@ -1109,3 +1116,54 @@ export type IEnrollment = Partial<
         attributes: Dictionary<string>;
     }
 >;
+
+export type CallbackArgs = {
+    trackedEntityInstances: Array<Partial<TrackedEntityInstance>>;
+    data: any[];
+    currentAttributes: Array<{
+        attribute: string;
+        value: string;
+    }>;
+    pager: Partial<{
+        page: number;
+        pageCount: number;
+        total: number;
+        pageSize: number;
+    }>;
+    goDataData: any;
+};
+
+export type FetchArgs = {
+    mapping: Partial<IMapping>;
+    api: Partial<{ engine: any; axios: AxiosInstance }>;
+    afterFetch: (args: Partial<CallbackArgs>) => void;
+    pageSize: string;
+    fields: string;
+    goData: Partial<IGoData>;
+    uniqueAttributeValues: Array<{ [key: string]: string }>;
+    withAttributes: boolean;
+    numberOfUniqAttribute: number;
+    data: any[];
+    setMessage: React.Dispatch<React.SetStateAction<string>>;
+};
+
+export type FlattenArgs = {
+    data: Partial<CallbackArgs>;
+    mapping: Partial<IMapping>;
+    tokens: Dictionary<string>;
+};
+
+export type ConverterArgs = {
+    mapping: Partial<IMapping>;
+    afterConversion: (args: { convertedData: any[] }) => void;
+    organisationUnitMapping: Mapping;
+    attributeMapping: Mapping;
+    programStageMapping: StageMapping;
+    optionMapping: Record<string, string>;
+    version: number;
+    program: Partial<IProgram>;
+    enrollmentMapping: Mapping;
+    trackedEntityInstances: Array<Partial<TrackedEntityInstance>>;
+    data: any[];
+    goData: any;
+};
