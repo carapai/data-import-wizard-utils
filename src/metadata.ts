@@ -41,9 +41,10 @@ const getParentName = (parent: Partial<DHIS2OrgUnit>) => {
 const getOrgUnits = (program: Partial<IProgram>): Array<Option> => {
     return program.organisationUnits?.map(({ id, name, code, parent }) => {
         return {
-            label: [...getParentName(parent).reverse(), name].join("/"),
+            label: name,
             value: id,
             code,
+            path: [...getParentName(parent).reverse(), name].join("/"),
         };
     });
 };
@@ -220,25 +221,26 @@ export const makeMetadata = ({
         mapping.dataSource === "dhis2-data-set" &&
         !isEmpty(dhis2DataSet)
     ) {
-        results.sourceColumns = dataSet.dataSetElements.flatMap(
+        results.sourceColumns = dhis2DataSet.dataSetElements.flatMap(
             ({ dataElement }) =>
                 dataElement.categoryCombo?.categoryOptionCombos.map((c) => ({
                     label: `${dataElement.name}:${c.name}`,
                     value: `${dataElement.id},${c.id}`,
                 })),
         );
-        results.sourceOrgUnits = dataSet.organisationUnits?.map(
+        results.sourceOrgUnits = dhis2DataSet.organisationUnits?.map(
             ({ id, name, code }) => ({ code, label: name, value: id, id }),
         );
 
-        results.sourceCategories = dataSet.categoryCombo?.categories.flatMap(
-            ({ id, name, code }) => {
-                if (name !== "default") {
-                    return { id, value: id, label: name, code };
-                }
-                return [];
-            },
-        );
+        results.sourceCategories =
+            dhis2DataSet.categoryCombo?.categories.flatMap(
+                ({ id, name, code }) => {
+                    if (name !== "default") {
+                        return { id, value: id, label: name, code };
+                    }
+                    return [];
+                },
+            );
 
         results.sourceCategoryOptionCombos =
             dhis2DataSet.categoryCombo?.categoryOptionCombos.map(

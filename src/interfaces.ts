@@ -363,6 +363,8 @@ export interface RealMapping {
     customEnrollmentIdColumn: boolean;
     orgUnitColumn: string;
     customOrgUnitColumn: boolean;
+    isManual: boolean;
+    destination: string;
 }
 
 export interface Mapping {
@@ -479,6 +481,7 @@ export interface Option extends OptionBase {
     parent?: string;
     options?: Option[];
     allowFutureDate?: boolean;
+    path?: string;
 }
 
 export interface MultiOption extends OptionBase {
