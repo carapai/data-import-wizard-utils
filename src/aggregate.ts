@@ -1,5 +1,6 @@
 import { AggDataValue, IMapping, Mapping } from "./interfaces";
 import {
+    flipMapping,
     processDataSet,
     processElements,
     processIndicators,
@@ -28,13 +29,13 @@ export const convertToAggregate = ({
     dataMapping,
     mapping,
     data,
-    organisationUnitMapping,
-    attributionMapping,
+    flippedOrgUnits,
+    flippedAttribution,
 }: {
     mapping: Partial<IMapping>;
-    organisationUnitMapping: Mapping;
+    flippedOrgUnits: Record<string, string>;
+    flippedAttribution: Record<string, string>;
     dataMapping: Mapping;
-    attributionMapping: Mapping;
     data: any[];
 }): {
     validData: Array<AggDataValue>;
@@ -48,15 +49,16 @@ export const convertToAggregate = ({
         return processLineList({
             data,
             mapping,
-            organisationUnitMapping,
+            flippedOrgUnits,
+            flippedAttribution,
         });
     } else if (mapping.dataSource === "dhis2-data-set") {
         return processDataSet({
             data,
             mapping,
             dataMapping,
-            organisationUnitMapping,
-            attributionMapping,
+            flippedOrgUnits,
+            flippedAttribution,
         });
     } else if (
         mapping &&
@@ -67,22 +69,21 @@ export const convertToAggregate = ({
             data,
             mapping,
             dataMapping,
-            organisationUnitMapping,
-            attributionMapping,
+            flippedOrgUnits,
+            flippedAttribution,
         });
     } else if (
         mapping &&
         mapping.dataSource &&
         ["dhis2-program-indicators", "dhis2-indicators"].indexOf(
-            mapping.dataSource
+            mapping.dataSource,
         ) !== -1
     ) {
         return processIndicators({
             data,
             mapping,
             dataMapping,
-            organisationUnitMapping,
-            attributionMapping,
+            flippedOrgUnits,
         });
     }
     return { validData: [], invalidData: [] };

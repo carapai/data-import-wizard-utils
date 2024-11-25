@@ -2,6 +2,7 @@ import { isEmpty } from "lodash/fp";
 import { z } from "zod";
 import {
     DataSource,
+    EventStageMapping,
     IMapping,
     IProgram,
     Mapping,
@@ -56,7 +57,7 @@ const mandatoryAttributesMapped = ({
                 if (
                     mandatory &&
                     attributeMapping[value] &&
-                    attributeMapping[value].value
+                    attributeMapping[value].source
                 ) {
                     return true;
                 } else if (mandatory) {
@@ -133,6 +134,7 @@ const mandatoryGoDataMapped = ({
 
 const isValidProgramStage = (
     program: Partial<IProgram>,
+    eventStageMapping: Record<string, EventStageMapping>,
     programStageMapping: StageMapping,
 ) => {
     if (isEmpty(programStageMapping)) {
@@ -140,19 +142,16 @@ const isValidProgramStage = (
     }
 
     const all = Object.entries(programStageMapping).map(([stage, mapping]) => {
-        const { info, ...rest } = mapping || {};
+        const { createEvents, updateEvents, eventDateColumn } =
+            eventStageMapping[stage];
         const currentStage = program.programStages.find(
             ({ id }) => id === stage,
         );
-        if (
-            (info.createEvents || info.updateEvents) &&
-            info.eventDateColumn &&
-            currentStage
-        ) {
+        if ((createEvents || updateEvents) && eventDateColumn && currentStage) {
             const allCompulsoryMapped =
                 currentStage.programStageDataElements.flatMap(
                     ({ compulsory, dataElement: { id } }) => {
-                        if (compulsory && rest[id]?.value) {
+                        if (compulsory && mapping[id]?.source) {
                             return true;
                         } else if (compulsory) {
                             return false;
@@ -161,7 +160,7 @@ const isValidProgramStage = (
                     },
                 );
             return allCompulsoryMapped.every((e) => e === true);
-        } else if (info.createEvents || info.updateEvents) {
+        } else if (createEvents || updateEvents) {
             return false;
         }
         return true;
@@ -172,9 +171,9 @@ const isValidProgramStage = (
 const hasOrgUnitMapping = (organisationUnitMapping: Mapping) => {
     if (!isEmpty(organisationUnitMapping)) {
         return (
-            Object.values(organisationUnitMapping).flatMap(({ value }) => {
-                if (value) {
-                    return value;
+            Object.values(organisationUnitMapping).flatMap(({ source }) => {
+                if (source) {
+                    return source;
                 }
                 return [];
             }).length > 0

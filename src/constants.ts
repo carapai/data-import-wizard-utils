@@ -1,4 +1,4 @@
-import { Option } from "./interfaces";
+import { Option, Processed } from "./interfaces";
 
 export const DATE_TIME_FORMAT = "YYYY-MM-DD HH:mm:ss";
 export const DATE_FORMAT = "YYYY-MM-DD";
@@ -423,6 +423,17 @@ export const GO_DATA_EVENTS_FIELDS: Option[] = [
     },
 ];
 export const GO_DATA_EPIDEMIOLOGY_FIELDS: Option[] = [
+    {
+        value: "visualId",
+        mandatory: true,
+        multiple: false,
+        entity: "CASE",
+        availableOptions: [],
+        optionSetValue: false,
+        unique: true,
+        valueType: "TEXT",
+        label: "case ID",
+    },
     {
         value: "classification",
         label: "Case classification",
@@ -1127,3 +1138,51 @@ export const GO_DATA_RELATIONSHIP_FIELDS: Option[] = [
         label: "Comments",
     },
 ];
+
+export const emptyProcessedData: Processed = {
+    dhis2: {
+        trackedEntityInstances: [],
+        enrollments: [],
+        events: [],
+        trackedEntityInstanceUpdates: [],
+        enrollmentUpdates: [],
+        errors: [],
+        conflicts: [],
+        eventUpdates: [],
+    },
+    goData: {
+        conflicts: {
+            epidemiology: [],
+            events: [],
+            lab: [],
+            person: [],
+            questionnaire: [],
+            relationships: [],
+        },
+        errors: {
+            epidemiology: [],
+            events: [],
+            lab: [],
+            person: [],
+            questionnaire: [],
+            relationships: [],
+        },
+        inserts: {
+            epidemiology: [],
+            events: [],
+            lab: [],
+            person: [],
+            questionnaire: [],
+            relationships: [],
+        },
+        updates: {
+            epidemiology: [],
+            events: [],
+            lab: [],
+            person: [],
+            questionnaire: [],
+            relationships: [],
+        },
+    },
+    processedData: [],
+};

@@ -1,9 +1,65 @@
 import { AxiosInstance } from "axios";
-import { CallbackArgs, TrackedEntityInstance } from "./interfaces";
-import { fetchTrackedEntityInstancesByIds } from "./fetch-tracked-entities-by-ids";
 import { fromPairs, isArray, isEmpty, unionBy, uniq } from "lodash";
 import { chunk, uniqBy } from "lodash/fp";
+import { fetchTrackedEntityInstancesByIds } from "./fetch-tracked-entities-by-ids";
+import { CallbackArgs, Filter, OU, TrackedEntityInstance } from "./interfaces";
 import { joinAttributes } from "./program";
+
+const queryOrganisationUnits = async (
+    api: Partial<{ engine: any; axios: AxiosInstance }>,
+    units: string[],
+) => {
+    if (api.engine) {
+        const {
+            units: { organisationUnits },
+        }: { units: { organisationUnits: OU[] } } = await api.engine.query({
+            units: {
+                resource: `organisationUnits`,
+                params: {
+                    filter: `id:in:[${units.join(",")}]`,
+                    paging: "false",
+                    fields: "id,name,level,ancestors[id,name,level]",
+                },
+            },
+        });
+        return organisationUnits.reduce((agg, ou) => {
+            agg[ou.id] = {
+                [`level${ou.level}id`]: ou.id,
+                [`level${ou.level}name`]: ou.name,
+                ...ou.ancestors.reduce((agg, ancestor) => {
+                    agg[`level${ancestor.level}id`] = ancestor.id;
+                    agg[`level${ancestor.level}name`] = ancestor.name;
+                    return agg;
+                }, {}),
+            };
+            return agg;
+        }, {});
+    } else if (api.axios) {
+        const {
+            data: { organisationUnits },
+        } = await api.axios.get<{
+            organisationUnits: OU[];
+        }>(`api/organisationUnits.json`, {
+            params: {
+                filter: `id:in:[${units.join(",")}]`,
+                paging: "false",
+                fields: "id,name,level,ancestors[id,name,level]",
+            },
+        });
+        return organisationUnits.reduce((agg, ou) => {
+            agg[ou.id] = {
+                [`${ou.level}id`]: ou.id,
+                [`${ou.level}name`]: ou.name,
+                ...ou.ancestors.reduce((agg, ancestor) => {
+                    agg[`${ancestor.level}id`] = ancestor.id;
+                    agg[`${ancestor.level}name`] = ancestor.name;
+                    return agg;
+                }, {}),
+            };
+            return agg;
+        }, {});
+    }
+};
 
 export const queryTrackedEntityInstances = async (
     api: Partial<{ engine: any; axios: AxiosInstance }>,
@@ -40,9 +96,22 @@ export const queryTrackedEntityInstances = async (
         let currentInstances: TrackedEntityInstance[] = [];
 
         for (const { trackedEntityInstances } of Object.values(response)) {
+            let ouTree: Record<
+                string,
+                Record<string, string>
+            > = await queryOrganisationUnits(
+                api,
+                uniq(
+                    trackedEntityInstances.map((instance) => instance.orgUnit),
+                ),
+            );
+
             currentInstances = unionBy(
                 currentInstances,
-                trackedEntityInstances,
+                trackedEntityInstances.map((currentInstance) => ({
+                    ...currentInstance,
+                    ...ouTree[currentInstance.orgUnit],
+                })),
                 "trackedEntityInstance",
             );
         }
@@ -73,22 +142,64 @@ export const queryTrackedEntityInstances = async (
         for (const {
             data: { trackedEntityInstances },
         } of allQueries) {
+            let ouTree: Record<
+                string,
+                Record<string, string>
+            > = await queryOrganisationUnits(
+                api,
+                uniq(
+                    trackedEntityInstances.map((instance) => instance.orgUnit),
+                ),
+            );
+
             currentInstances = unionBy(
                 currentInstances,
-                trackedEntityInstances,
+                trackedEntityInstances.map((currentInstance) => ({
+                    ...currentInstance,
+                    ...ouTree[currentInstance.orgUnit],
+                })),
                 "trackedEntityInstance",
             );
         }
         return { trackedEntityInstances: currentInstances };
     } else if (api.engine) {
-        const { data }: any = await api.engine.query({
+        const {
+            data: { trackedEntityInstances, pager },
+        }: {
+            data: {
+                trackedEntityInstances: TrackedEntityInstance[];
+                pager: {
+                    page: number;
+                    pageCount: number;
+                    total: number;
+                    pageSize: number;
+                };
+            };
+        } = await api.engine.query({
             data: {
                 resource: `trackedEntityInstances.json?${params.toString()}`,
             },
         });
-        return data;
+        let ouTree: Record<
+            string,
+            Record<string, string>
+        > = await queryOrganisationUnits(
+            api,
+            uniq(trackedEntityInstances.map((instance) => instance.orgUnit)),
+        );
+        return {
+            trackedEntityInstances: trackedEntityInstances.map(
+                (currentInstance) => ({
+                    ...currentInstance,
+                    ...ouTree[currentInstance.orgUnit],
+                }),
+            ),
+            pager,
+        };
     } else if (api.axios) {
-        const { data } = await api.axios.get<
+        const {
+            data: { trackedEntityInstances, pager },
+        } = await api.axios.get<
             Partial<{
                 pager: {
                     page: number;
@@ -104,7 +215,22 @@ export const queryTrackedEntityInstances = async (
                 }>
         >(`api/trackedEntityInstances.json?${params.toString()}`);
 
-        return data;
+        let ouTree: Record<
+            string,
+            Record<string, string>
+        > = await queryOrganisationUnits(
+            api,
+            uniq(trackedEntityInstances.map((instance) => instance.orgUnit)),
+        );
+        return {
+            trackedEntityInstances: trackedEntityInstances.map(
+                (currentInstance) => ({
+                    ...currentInstance,
+                    ...ouTree[currentInstance.orgUnit],
+                }),
+            ),
+            pager,
+        };
     }
 
     return { trackedEntityInstances: [] };
@@ -123,6 +249,7 @@ export const fetchTrackedEntityInstances = async (
         pageSize = "50",
         numberOfUniqAttribute = 1,
         setMessage,
+        filters = [],
     }: Partial<{
         additionalParams: { [key: string]: string };
         uniqueAttributeValues: Array<{ [key: string]: string }>;
@@ -133,10 +260,11 @@ export const fetchTrackedEntityInstances = async (
         fields: string;
         pageSize: string;
         numberOfUniqAttribute: number;
+        filters: Filter[];
     }> &
         Required<{
             api: Partial<{ engine: any; axios: AxiosInstance }>;
-            setMessage: React.Dispatch<React.SetStateAction<string>>;
+            setMessage: (message: string) => void;
         }>,
     afterFetch: (args: Partial<CallbackArgs>) => void = undefined,
 ): Promise<{
@@ -166,7 +294,6 @@ export const fetchTrackedEntityInstances = async (
             uniqueAttributeValues.map((o) => Object.values(o)[0]),
         );
         const chunkedData = chunk(Number(pageSize), allValues);
-
         for (const attributeValues of chunkedData) {
             let params = new URLSearchParams(additionalParams);
             params.append(
@@ -193,6 +320,7 @@ export const fetchTrackedEntityInstances = async (
                 trackedEntityInstances,
                 program,
             );
+            setMessage(`Fetching ${page} of ${chunkedData.length} pages`);
             const pager = {
                 pageSize: Number(pageSize),
                 total: allValues.length,
@@ -238,6 +366,7 @@ export const fetchTrackedEntityInstances = async (
                 }
                 return queryTrackedEntityInstances(api, params);
             });
+            setMessage(`Fetching ${page} of ${chunkedData.length} pages`);
             const result = await Promise.all(all);
             const trackedEntityInstances = result.flatMap(
                 ({ trackedEntityInstances }) => trackedEntityInstances,
@@ -265,30 +394,39 @@ export const fetchTrackedEntityInstances = async (
         }
     } else if (!withAttributes) {
         let page = 1;
-        let params: { [key: string]: string } = {
+        const params = new URLSearchParams({
+            ...additionalParams,
             fields,
             page: String(page),
             pageSize,
-            ...additionalParams,
-        };
+        });
+
         if (program) {
-            params = { ...params, program };
+            params.append("program", program);
         } else if (trackedEntityType) {
-            params = { ...params, trackedEntityType };
+            params.append("trackedEntityType", trackedEntityType);
         }
         if (!additionalParams["ou"] && !additionalParams["ouMode"]) {
-            params = { ...params, ouMode: "ALL" };
+            params.append("ouMode", "ALL");
         }
         if (additionalParams["ou"]) {
-            params = { ...params, ouMode: "DESCENDANTS" };
+            params.append("ouMode", "DESCENDANTS");
         }
-        setMessage(() => `Fetching data for the first page`);
-        const { pager, trackedEntityInstances } =
-            await queryTrackedEntityInstances(
-                api,
-                new URLSearchParams({ ...params, totalPages: "true" }),
-            );
 
+        if (filters.length > 0) {
+            for (const filter of filters) {
+                params.append(
+                    "filter",
+                    `${filter.attribute}:${filter.operator}:${filter.value}`,
+                );
+            }
+        }
+
+        setMessage(`Fetching data for the first page`);
+        const first = new URLSearchParams(params);
+        first.append("totalPages", "true");
+        const { pager, trackedEntityInstances, ...rest } =
+            await queryTrackedEntityInstances(api, first);
         const joinedInstances = joinAttributes(trackedEntityInstances, program);
         if (afterFetch) {
             afterFetch({
@@ -300,15 +438,13 @@ export const fetchTrackedEntityInstances = async (
         }
         if (!isEmpty(pager) && pager.pageCount > 1) {
             for (let p = 2; p <= pager.pageCount; p++) {
+                const second = new URLSearchParams(params);
+                second.delete("page");
+                second.append("page", String(p));
                 try {
-                    setMessage(
-                        () => `Fetching data for ${p} of ${pager.pageCount}`,
-                    );
+                    setMessage(`Fetching data for ${p} of ${pager.pageCount}`);
                     const { trackedEntityInstances } =
-                        await queryTrackedEntityInstances(
-                            api,
-                            new URLSearchParams({ ...params, page: String(p) }),
-                        );
+                        await queryTrackedEntityInstances(api, second);
                     const joinedInstances = joinAttributes(
                         trackedEntityInstances,
                         program,

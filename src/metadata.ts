@@ -21,14 +21,13 @@ import {
 } from "./interfaces";
 import {
     findTrackedEntityInstanceIds,
-    findUniqAttributes,
     flattenProgram,
     getAttributes,
 } from "./program";
 
 import { flattenGoData } from "./flatten-go-data";
 
-const getParentName = (parent: Partial<DHIS2OrgUnit>) => {
+export const getParentName = (parent: Partial<DHIS2OrgUnit>) => {
     let first = parent;
     let allNames: string[] = [];
     while (first && first.name) {
@@ -38,22 +37,31 @@ const getParentName = (parent: Partial<DHIS2OrgUnit>) => {
     return allNames;
 };
 
+export const getParent = (parent: Partial<DHIS2OrgUnit>) => {
+    let first = parent;
+    let allNames: Array<{}> = [];
+    while (first && first.name) {
+        allNames = [...allNames, first.name];
+        first = first.parent;
+    }
+    return allNames;
+};
+
 const getOrgUnits = (program: Partial<IProgram>): Array<Option> => {
     return program.organisationUnits?.map(({ id, name, code, parent }) => {
+        const path = [...getParentName(parent).reverse(), name].join("/");
         return {
             label: name,
             value: id,
             code,
-            path: [...getParentName(parent).reverse(), name].join("/"),
+            path,
         };
     });
 };
 
 export const makeMetadata = ({
     data,
-    attributeMapping,
     dhis2Program,
-    programStageMapping,
     goData,
     tokens,
     remoteOrganisations,
@@ -64,16 +72,11 @@ export const makeMetadata = ({
     programIndicators,
     indicators,
     dhis2DataSet,
-    enrollmentMapping,
-    organisationUnitMapping,
+    previous,
 }: Partial<{
     data: any[];
     mapping: Partial<IMapping>;
     dhis2Program: Partial<IProgram>;
-    programStageMapping: StageMapping;
-    attributeMapping: Mapping;
-    enrollmentMapping: Mapping;
-    organisationUnitMapping: Mapping;
     remoteOrganisations: any[];
     goData: Partial<IGoData>;
     tokens: Dictionary<string>;
@@ -84,7 +87,19 @@ export const makeMetadata = ({
     dhis2DataSet: Partial<IDataSet>;
     indicators: Option[];
     programIndicators: Option[];
+    previous: {
+        programStageMapping: StageMapping;
+        attributeMapping: Mapping;
+        organisationUnitMapping: Mapping;
+        enrollmentMapping: Mapping;
+    };
 }>) => {
+    const {
+        programStageMapping = {},
+        attributeMapping = {},
+        organisationUnitMapping = {},
+        enrollmentMapping = {},
+    } = previous || {};
     let results: Metadata = {
         sourceOrgUnits: [],
         destinationOrgUnits: [],
@@ -111,12 +126,14 @@ export const makeMetadata = ({
         destinationEnrollmentAttributes: [],
     };
 
-    if (mapping.type === "individual") {
-        const { elements, attributes } = flattenProgram(program);
+    const { type, orgUnitMapping: { orgUnitColumn } = { orgUnitColumn: "" } } =
+        mapping;
 
+    if (type === "individual") {
+        const { elements, attributes } = flattenProgram(program);
         const { enrollmentAttributes, trackedEntityAttributes } =
             getAttributes(program);
-
+			
         results.destinationAttributes = trackedEntityAttributes.sort((a, b) => {
             if (a.mandatory && !b.mandatory) {
                 return -1;
@@ -137,17 +154,12 @@ export const makeMetadata = ({
         );
         results.destinationColumns = [...attributes, ...elements];
         const trackedEntityInstanceIds = findTrackedEntityInstanceIds({
+            mapping,
             data,
-            attributeMapping,
         });
         results.trackedEntityInstanceIds = trackedEntityInstanceIds;
 
         const destinationOrgUnits = getOrgUnits(program);
-
-        const uniqueAttributeValues = findUniqAttributes(
-            data,
-            attributeMapping,
-        );
 
         const destinationStages =
             program?.programStages?.map(({ id, name }) => {
@@ -159,7 +171,6 @@ export const makeMetadata = ({
             }) || [];
         results.destinationStages = destinationStages;
         results.destinationOrgUnits = destinationOrgUnits;
-        results.uniqueAttributeValues = uniqueAttributeValues;
     } else if (mapping.type === "aggregate" && !isEmpty(dataSet)) {
         if (programIndicators && programIndicators.length > 0) {
             results.sourceColumns = programIndicators;
@@ -211,12 +222,19 @@ export const makeMetadata = ({
         programIndicators.length > 0
     ) {
         results.sourceColumns = programIndicators;
+        if (remoteOrganisations.length > 0) {
+            results.sourceOrgUnits = remoteOrganisations;
+        }
     } else if (
         mapping.dataSource === "dhis2-indicators" &&
         indicators &&
         indicators.length > 0
     ) {
         results.sourceColumns = indicators;
+
+        if (remoteOrganisations.length > 0) {
+            results.sourceOrgUnits = remoteOrganisations;
+        }
     } else if (
         mapping.dataSource === "dhis2-data-set" &&
         !isEmpty(dhis2DataSet)
@@ -293,9 +311,11 @@ export const makeMetadata = ({
             units = remoteOrganisations.map((v: any) => {
                 const label = v["name"] || "";
                 const value = v["id"] || "";
-                return { label, value };
+                const code = v["code"];
+                return { label, value, code };
             });
         }
+
         const attributes = [
             ...GO_DATA_PERSON_FIELDS,
             ...GO_DATA_EPIDEMIOLOGY_FIELDS,
@@ -336,21 +356,14 @@ export const makeMetadata = ({
             return 0;
         });
         results.sourceAttributes = attributes;
-        results.epidemiology = GO_DATA_EPIDEMIOLOGY_FIELDS.sort((a, b) => {
-            if (a.mandatory && !b.mandatory) {
-                return -1;
-            } else if (!a.mandatory && b.mandatory) {
-                return 1;
-            }
-            return 0;
-        }).map((a) => {
-            if (a.optionSet) {
+        results.epidemiology = GO_DATA_EPIDEMIOLOGY_FIELDS.map((a) => {
+            if (a.optionSetValue && a.optionSet) {
                 return {
                     ...a,
                     availableOptions: referenceData
                         .filter((b) => b.categoryId === a.optionSet)
                         .map((c) => {
-                            const currentLabel = tokens[c.description];
+                            const currentLabel = tokens[c.value];
                             return {
                                 label: currentLabel,
                                 value: c.value,
@@ -359,7 +372,32 @@ export const makeMetadata = ({
                 };
             }
             return a;
-        });
+        })
+            .sort((a, b) => {
+                if (a.mandatory && !b.mandatory) {
+                    return -1;
+                } else if (!a.mandatory && b.mandatory) {
+                    return 1;
+                }
+                return 0;
+            })
+            .map((a) => {
+                if (a.optionSet) {
+                    return {
+                        ...a,
+                        availableOptions: referenceData
+                            .filter((b) => b.categoryId === a.optionSet)
+                            .map((c) => {
+                                const currentLabel = tokens[c.value];
+                                return {
+                                    label: currentLabel,
+                                    value: c.value,
+                                };
+                            }),
+                    };
+                }
+                return a;
+            });
         results.case = uniqBy(
             "value",
             GO_DATA_PERSON_FIELDS.filter(
@@ -381,7 +419,7 @@ export const makeMetadata = ({
                         availableOptions: referenceData
                             .filter((b) => b.categoryId === a.optionSet)
                             .map((c) => {
-                                const currentLabel = tokens[c.description];
+                                const currentLabel = tokens[c.value];
                                 return {
                                     label: currentLabel,
                                     value: c.value,
@@ -412,7 +450,7 @@ export const makeMetadata = ({
                         availableOptions: referenceData
                             .filter((b) => b.categoryId === a.optionSet)
                             .map((c) => {
-                                const currentLabel = tokens[c.description];
+                                const currentLabel = tokens[c.value];
                                 return {
                                     label: currentLabel,
                                     value: c.value,
@@ -443,7 +481,7 @@ export const makeMetadata = ({
                         availableOptions: referenceData
                             .filter((b) => b.categoryId === a.optionSet)
                             .map((c) => {
-                                const currentLabel = tokens[c.description];
+                                const currentLabel = tokens[c.value];
                                 return {
                                     label: currentLabel,
                                     value: c.value,
@@ -467,7 +505,7 @@ export const makeMetadata = ({
                     availableOptions: referenceData
                         .filter((b) => b.categoryId === a.optionSet)
                         .map((c) => {
-                            const currentLabel = tokens[c.description];
+                            const currentLabel = tokens[c.value];
                             return {
                                 label: currentLabel,
                                 value: c.value,
@@ -491,7 +529,7 @@ export const makeMetadata = ({
                     availableOptions: referenceData
                         .filter((b) => b.categoryId === a.optionSet)
                         .map((c) => {
-                            const currentLabel = tokens[c.description];
+                            const currentLabel = tokens[c.value];
                             return {
                                 label: currentLabel,
                                 value: c.value,
@@ -503,7 +541,6 @@ export const makeMetadata = ({
         });
         results.questionnaire = investigationTemplate;
     } else if (mapping.dataSource === "fhir") {
-        console.log(data);
     } else {
         let columns: Array<Option> = [];
         if (
@@ -535,16 +572,37 @@ export const makeMetadata = ({
                 const value = v[mapping.remoteOrgUnitValueField] || "";
                 return { label, value };
             });
-        } else if (organisationUnitMapping && organisationUnitMapping.info) {
-            const { orgUnitColumn } = organisationUnitMapping.info;
+        } else if (orgUnitColumn) {
             units = uniqBy(
                 "value",
                 data.flatMap((d) => {
-                    const option: Option = {
-                        label: getOr("", orgUnitColumn || "", d),
-                        value: getOr("", orgUnitColumn || "", d),
-                    };
-                    if (option.value) {
+                    const allColumns = orgUnitColumn.split(",");
+                    const allUnits = allColumns.flatMap((c) => {
+                        const currentValue = getOr("", c, d).trim();
+                        if (currentValue) {
+                            return currentValue;
+                        }
+                        return [];
+                    });
+                    const path = allUnits.join("/");
+
+                    if (mapping.orgUnitMapping.matchHierarchy) {
+                        if (allColumns.length === allUnits.length) {
+                            const option: Option = {
+                                label: path,
+                                value: path,
+                                path: path,
+                            };
+                            return option;
+                        }
+
+                        return [];
+                    } else if (allUnits.length > 0) {
+                        const option: Option = {
+                            label: allUnits[allUnits.length - 1],
+                            value: allUnits[allUnits.length - 1],
+                            path: path,
+                        };
                         return option;
                     }
                     return [];

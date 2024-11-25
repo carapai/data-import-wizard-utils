@@ -8,8 +8,14 @@ import {
     GO_DATA_RELATIONSHIP_FIELDS,
 } from "./constants";
 import { flattenGoData } from "./flatten-go-data";
-import { FlattenedInstance, GoResponse, IGoData, Mapping } from "./interfaces";
-import { getProgramUniqAttributes, getProgramUniqColumns } from "./program";
+import {
+    FlattenedInstance,
+    GODataOption,
+    GoResponse,
+    IGoData,
+    Mapping,
+} from "./interfaces";
+import { getProgramUniqAttributes } from "./program";
 import { evaluateMapping, findUpdates } from "./utils";
 export const convertToGoData = (
     data: Array<Partial<FlattenedInstance>>,
@@ -19,19 +25,24 @@ export const convertToGoData = (
     optionMapping: Record<string, string>,
     tokens: Dictionary<string>,
     previousData: GoResponse,
+    referenceData: GODataOption[],
 ) => {
     const uniqAttributes = getProgramUniqAttributes(attributeMapping);
-    const uniqColumns = getProgramUniqColumns(attributeMapping);
-    const flippedUnits = fromPairs(
-        Object.entries(organisationUnitMapping).map(([unit, value]) => {
-            return [value.value, unit];
-        }),
-    );
-    const flippedOptions = fromPairs(
-        Object.entries(optionMapping).map(([option, value]) => {
-            return [value, option];
-        }),
-    );
+    const flippedUnits = {};
+    for (const [key, value] of Object.entries(organisationUnitMapping)) {
+        if (value && value.source) {
+            for (const a of value.source.split(",")) {
+                flippedUnits[a] = key;
+            }
+        }
+    }
+    const flippedOptions = {};
+
+    for (const [key, value] of Object.entries(optionMapping)) {
+        for (const a of value.split(",")) {
+            flippedOptions[a] = key;
+        }
+    }
 
     let errors: GoResponse = {
         person: [],
@@ -69,13 +80,94 @@ export const convertToGoData = (
             questionnaire: [],
         },
     };
+
     data.forEach((instanceData) => {
         const all = [
-            GO_DATA_PERSON_FIELDS,
-            GO_DATA_EPIDEMIOLOGY_FIELDS,
-            GO_DATA_EVENTS_FIELDS,
-            GO_DATA_RELATIONSHIP_FIELDS,
-            GO_DATA_LAB_FIELDS,
+            GO_DATA_PERSON_FIELDS.map((a) => {
+                if (a.optionSetValue && a.optionSet) {
+                    return {
+                        ...a,
+                        availableOptions: referenceData
+                            .filter((b) => b.categoryId === a.optionSet)
+                            .map((c) => {
+                                const currentLabel = tokens[c.value];
+                                return {
+                                    label: currentLabel,
+                                    value: c.value,
+                                };
+                            }),
+                    };
+                }
+                return a;
+            }),
+            GO_DATA_EPIDEMIOLOGY_FIELDS.map((a) => {
+                if (a.optionSetValue && a.optionSet) {
+                    return {
+                        ...a,
+                        availableOptions: referenceData
+                            .filter((b) => b.categoryId === a.optionSet)
+                            .map((c) => {
+                                const currentLabel = tokens[c.value];
+                                return {
+                                    label: currentLabel,
+                                    value: c.value,
+                                };
+                            }),
+                    };
+                }
+                return a;
+            }),
+            GO_DATA_EVENTS_FIELDS.map((a) => {
+                if (a.optionSetValue && a.optionSet) {
+                    return {
+                        ...a,
+                        availableOptions: referenceData
+                            .filter((b) => b.categoryId === a.optionSet)
+                            .map((c) => {
+                                const currentLabel = tokens[c.value];
+                                return {
+                                    label: currentLabel,
+                                    value: c.value,
+                                };
+                            }),
+                    };
+                }
+                return a;
+            }),
+            GO_DATA_RELATIONSHIP_FIELDS.map((a) => {
+                if (a.optionSetValue && a.optionSet) {
+                    return {
+                        ...a,
+                        availableOptions: referenceData
+                            .filter((b) => b.categoryId === a.optionSet)
+                            .map((c) => {
+                                const currentLabel = tokens[c.value];
+                                return {
+                                    label: currentLabel,
+                                    value: c.value,
+                                };
+                            }),
+                    };
+                }
+                return a;
+            }),
+            GO_DATA_LAB_FIELDS.map((a) => {
+                if (a.optionSetValue && a.optionSet) {
+                    return {
+                        ...a,
+                        availableOptions: referenceData
+                            .filter((b) => b.categoryId === a.optionSet)
+                            .map((c) => {
+                                const currentLabel = tokens[c.value];
+                                return {
+                                    label: currentLabel,
+                                    value: c.value,
+                                };
+                            }),
+                    };
+                }
+                return a;
+            }),
             flattenGoData(goData.caseInvestigationTemplate, tokens),
         ].map((fields) =>
             evaluateMapping(
@@ -85,7 +177,6 @@ export const convertToGoData = (
                 flippedOptions,
                 flippedUnits,
                 uniqAttributes,
-                uniqColumns,
             ),
         );
         const [
@@ -308,5 +399,5 @@ export const convertToGoData = (
             ],
         };
     });
-    return { processed, errors, conflicts };
+    return { ...processed, errors, conflicts };
 };

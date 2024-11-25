@@ -21,7 +21,6 @@ export const fetchGoDataData = async (
         username,
         ...rest
     } = authentication;
-
     const response = await getToken<GODataTokenGenerationResponse>(
         authentication,
         "email",

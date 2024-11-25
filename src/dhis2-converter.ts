@@ -1,8 +1,8 @@
 import dayjs from "dayjs";
-import { Dictionary } from "lodash";
 import { fromPairs, getOr, groupBy, isEmpty } from "lodash/fp";
 import { processEvents } from "./events-converter";
 import {
+    DHIS2ProcessedData,
     Enrollment,
     Event,
     IEnrollment,
@@ -15,10 +15,16 @@ import {
 import {
     getAttributes,
     getDataElements,
-    getProgramUniqColumns,
+    getProgramUniqAttributes,
 } from "./program";
 import { generateUid } from "./uid";
-import { findChanges, getGeometry, processAttributes } from "./utils";
+import {
+    cleanString,
+    findChanges,
+    flipMapping,
+    getGeometry,
+    processAttributes,
+} from "./utils";
 export const convertToDHIS2 = ({
     program,
     previousData,
@@ -32,15 +38,14 @@ export const convertToDHIS2 = ({
     enrollmentMapping,
 }: {
     previousData: {
-        attributes: Dictionary<Array<{ attribute: string; value: string }>>;
-        dataElements: Dictionary<
-            Dictionary<{
-                [key: string]: { [key: string]: any };
-            }>
+        attributes: Record<string, Array<{ attribute: string; value: string }>>;
+        dataElements: Record<
+            string,
+            Record<string, Record<string, Record<string, any>>>
         >;
-        enrollments: Dictionary<IEnrollment[]>;
-        trackedEntities: Dictionary<string>;
-        orgUnits: Dictionary<string>;
+        enrollments: Record<string, IEnrollment[]>;
+        trackedEntities: Record<string, string>;
+        orgUnits: Record<string, string>;
     };
     data: any[];
     mapping: Partial<IMapping>;
@@ -51,7 +56,7 @@ export const convertToDHIS2 = ({
     version: number;
     program: Partial<IProgram>;
     enrollmentMapping: Mapping;
-}) => {
+}): DHIS2ProcessedData => {
     const { enrollmentAttributes, trackedEntityAttributes } =
         getAttributes(program);
     const aAttributes = fromPairs(
@@ -63,7 +68,9 @@ export const convertToDHIS2 = ({
     const allElements = fromPairs(
         getDataElements(program).map((e) => [e.value, e]),
     );
-    const uniqColumns = getProgramUniqColumns(attributeMapping);
+    const uniqColumns = getProgramUniqAttributes(attributeMapping);
+    const uniqEnrollmentColumns = getProgramUniqAttributes(enrollmentMapping);
+
     const trackedEntityGeometryType =
         program.trackedEntityType?.featureType ?? "";
 
@@ -84,59 +91,41 @@ export const convertToDHIS2 = ({
     );
 
     const {
-        info: {
-            trackedEntityInstanceColumn,
-            geometryColumn: instanceGeometryColumn,
-            createEntities,
-            updateEntities,
-        } = {
-            trackedEntityInstanceColumn: "",
-            createEntities: false,
-            updateEntities: false,
-            geometryColumn: "",
-        },
-    } = attributeMapping ?? {};
+        trackedEntityInstanceColumn,
+        geometryColumn: instanceGeometryColumn,
+        createEntities,
+        updateEntities,
+    } = mapping.trackedEntityMapping ?? {};
 
+    const { orgUnitColumn } = mapping.orgUnitMapping ?? {};
     const {
-        info: { orgUnitColumn } = {
-            orgUnitColumn: "orgUnit",
-        },
-    } = organisationUnitMapping;
-    const {
-        info: {
-            enrollmentDateColumn,
-            incidentDateColumn,
-            updateEnrollments,
-            createEnrollments,
-            geometryColumn: enrollmentGeometryColumn,
-        } = {
-            enrollmentDateColumn: "",
-            incidentDateColumn: "",
-            updateEnrollments: false,
-            geometryColumn: "",
-            createEnrollments: false,
-        },
-        ...enrollmentAttributeMapping
-    } = enrollmentMapping;
-    const flippedUnits = fromPairs(
-        Object.entries(organisationUnitMapping).map(([unit, value]) => {
-            return [value.value, unit];
-        }),
-    );
+        enrollmentDateColumn,
+        incidentDateColumn,
+        updateEnrollments,
+        createEnrollments,
+        geometryColumn: enrollmentGeometryColumn,
+    } = mapping.enrollmentMapping ?? {};
 
-    const flippedOptions = fromPairs(
-        Object.entries(optionMapping).map(([option, value]) => {
-            return [value, option];
-        }),
-    );
-    let groupedData: Dictionary<any[]> = {};
+    const flippedUnits = flipMapping(organisationUnitMapping, true);
+
+    const flippedOptions: Record<string, string> = {};
+
+    Object.entries(optionMapping).forEach(([option, value]) => {
+        if (value) {
+            value.split(",").forEach((u) => {
+                flippedOptions[u] = option;
+            });
+        }
+    });
+    let groupedData: Record<string, any[]> = {};
     if (trackedEntityInstanceColumn) {
         groupedData = groupBy(trackedEntityInstanceColumn, data);
-    } else if (uniqColumns.length > 0) {
+    } else if (uniqColumns.length > 0 || uniqEnrollmentColumns.length > 0) {
         groupedData = groupBy(
             (item: any) =>
                 uniqColumns
-                    .map((column) => getOr("", column, item))
+                    .concat(uniqEnrollmentColumns)
+                    .map((column) => getOr("", column.source, item))
                     .sort()
                     .join(""),
             data,
@@ -149,6 +138,7 @@ export const convertToDHIS2 = ({
             }),
         );
     }
+
     const processed = Object.entries(groupedData).flatMap(
         ([uniqueKey, current]) => {
             let results: {
@@ -171,8 +161,20 @@ export const convertToDHIS2 = ({
                 conflicts: [],
             };
 
-            const currentUnit = getOr("", orgUnitColumn, current[0]);
-            let previousOrgUnit = getOr("", currentUnit, flippedUnits);
+            let currentUnit = "";
+
+            if (orgUnitColumn) {
+                currentUnit = orgUnitColumn
+                    .split(",")
+                    .map((u) => getOr("", u, current[0]).trim())
+                    .join("/");
+            }
+
+            let previousOrgUnit = getOr(
+                getOr("", uniqueKey, previousData.orgUnits),
+                cleanString(currentUnit).toLowerCase(),
+                flippedUnits,
+            );
 
             if (program.registration) {
                 let previousTrackedEntity = getOr(
@@ -375,8 +377,7 @@ export const convertToDHIS2 = ({
                                 if (dateAreValid) {
                                     const { source, errors, conflicts } =
                                         processAttributes({
-                                            attributeMapping:
-                                                enrollmentAttributeMapping,
+                                            attributeMapping: enrollmentMapping,
                                             attributes: eAttributes,
                                             flippedOptions,
                                             data: current[0],
@@ -465,8 +466,7 @@ export const convertToDHIS2 = ({
                         ) {
                             const { source, errors, conflicts } =
                                 processAttributes({
-                                    attributeMapping:
-                                        enrollmentAttributeMapping,
+                                    attributeMapping: enrollmentMapping,
                                     attributes: eAttributes,
                                     flippedOptions,
                                     data: current[0],
@@ -529,6 +529,7 @@ export const convertToDHIS2 = ({
                                 dataElements: allElements,
                                 uniqueKey,
                                 registration,
+                                eventStageMapping: mapping.eventStageMapping,
                             });
 
                             results = {
@@ -541,6 +542,36 @@ export const convertToDHIS2 = ({
                             };
                         }
                     }
+                } else if (
+                    previousOrgUnit &&
+                    previousEnrollments.length === 1
+                ) {
+                    const { eventUpdates, newEvents } = processEvents({
+                        data: current,
+                        programStageMapping,
+                        trackedEntityInstance: previousTrackedEntity,
+                        enrollment: previousEnrollments[0],
+                        orgUnit: previousOrgUnit,
+                        program: mapping.program.program || "",
+                        previousEvents: getOr(
+                            {},
+                            uniqueKey,
+                            previousData.dataElements,
+                        ),
+                        stages,
+                        options: flippedOptions,
+                        dataElements: allElements,
+                        uniqueKey,
+                        registration,
+                        eventStageMapping: mapping.eventStageMapping,
+                    });
+                    results = {
+                        ...results,
+                        events: results.events.concat(newEvents),
+                        eventUpdates: results.eventUpdates.concat(eventUpdates),
+                        conflicts: results.conflicts.concat(conflicts),
+                        errors: results.errors.concat(errors),
+                    };
                 }
             } else if (previousOrgUnit) {
                 const { eventUpdates, newEvents, conflicts, errors } =
@@ -559,6 +590,7 @@ export const convertToDHIS2 = ({
                         dataElements: allElements,
                         uniqueKey,
                         registration: false,
+                        eventStageMapping: mapping.eventStageMapping,
                     });
 
                 results = {

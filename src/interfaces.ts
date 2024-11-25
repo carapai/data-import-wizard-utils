@@ -51,26 +51,25 @@ export interface DHIS2DestinationOptions {
     completeDataSet: boolean;
 }
 
+export type Filter = {
+    attribute: string;
+    operator: string;
+    value: string;
+};
+
 export interface DHIS2SourceOptions {
-    programStage: string[];
+    programStages: string[];
     ous: string[];
     period: Period[];
     useAnalytics: boolean;
     searchPeriod: "enrollmentDate" | "eventDate";
     trackedEntityInstance: string;
+    attributeFilters: Filter[];
+    dataElementFilters: Filter[];
+    columns: React.Key[];
 }
 
-export type Update = {
-    attribute: string;
-    key: keyof RealMapping;
-    value: any;
-};
-export type StageUpdate = Update & { stage: string };
-export type StageMapping = {
-    [key: string]: Mapping;
-};
-
-export type Processed = {
+export interface DHIS2ProcessedData {
     trackedEntityInstances: Array<Partial<TrackedEntityInstance>>;
     enrollments: Array<Partial<Enrollment>>;
     enrollmentUpdates: Array<Partial<Enrollment>>;
@@ -79,6 +78,27 @@ export type Processed = {
     eventUpdates: Array<Partial<Event>>;
     errors: Array<any>;
     conflicts: Array<any>;
+}
+
+export type Update = {
+    attribute: string;
+    key: keyof Option;
+    value: any;
+};
+export type StageUpdate = Update & { stage: string };
+export type StageMapping = {
+    [key: string]: Mapping;
+};
+
+export type Processed = {
+    dhis2: DHIS2ProcessedData;
+    goData: {
+        inserts: GoResponse;
+        updates: GoResponse;
+        errors: GoResponse;
+        conflicts: GoResponse;
+    };
+    processedData: Array<any>;
 };
 export interface CommonIdentifier {
     id: string;
@@ -104,6 +124,8 @@ export const ValueType: {
         | ZodLiteral<true>
         | ZodEffects<ZodNumber, number, unknown>
         | ZodUnion<[ZodNumber, ZodString]>
+        | ZodUnion<[ZodBoolean, ZodEffects<ZodString, boolean, string>]>
+        | ZodUnion<[ZodLiteral<true>, ZodEffects<ZodString, boolean, string>]>
         | ZodUnion<[ZodString, ZodNumber]>;
 } = {
     TEXT: z.string().min(1),
@@ -111,8 +133,47 @@ export const ValueType: {
     LETTER: z.string().length(1),
     PHONE_NUMBER: z.string().min(1),
     EMAIL: z.string().email(),
-    BOOLEAN: z.boolean(),
-    TRUE_ONLY: z.literal(true),
+    BOOLEAN: z.union([
+        z.boolean(),
+        z.string().transform((val, ctx) => {
+            const lowercased = val.toLowerCase().trim();
+            if (
+                lowercased === "true" ||
+                lowercased === "1" ||
+                lowercased === "yes"
+            )
+                return true;
+            if (
+                lowercased === "false" ||
+                lowercased === "0" ||
+                lowercased === "no"
+            )
+                return false;
+            ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                message: `Invalid boolean string: ${val}`,
+            });
+            return z.NEVER;
+        }),
+    ]),
+    TRUE_ONLY: z.union([
+        z.literal(true),
+        z.string().transform((val, ctx) => {
+            const lowercased = val.toLowerCase().trim();
+            if (
+                lowercased === "true" ||
+                lowercased === "1" ||
+                lowercased === "yes"
+            )
+                return true;
+
+            ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                message: `Invalid true only string: ${val}`,
+            });
+            return z.NEVER;
+        }),
+    ]),
     DATE: z.string().regex(/^(\d{4})-(\d{2})-(\d{2})/),
     DATETIME: z
         .string()
@@ -187,14 +248,61 @@ export interface IProgramMapping {
     remoteProgram: string;
     selectIncidentDatesInFuture: boolean;
     selectEnrollmentDatesInFuture: boolean;
+    isTracker: boolean;
+    remoteIsTracker: boolean;
     createEntities: boolean;
+    createEvents: boolean;
     updateEntities: boolean;
     createEnrollments: boolean;
     updateEnrollments: boolean;
+    createEmptyEvents: boolean;
+    updateEvents: boolean;
+}
+
+export interface OrgUnitMapping {
+    orgUnitColumn: string;
+    customOrgUnitColumn: boolean;
+    otherHierarchyColumns: string;
+    matchHierarchy: boolean;
+    customOtherHierarchyColumns: boolean;
+}
+
+export interface EnrollmentMapping {
+    enrollmentDateColumn: string;
+    incidentDateColumn: string;
+    createEnrollments: boolean;
+    updateEnrollments: boolean;
+    customEnrollmentDateColumn: boolean;
+    customIncidentDateColumn: boolean;
+    enrollmentIdColumn: string;
+    customEnrollmentIdColumn: boolean;
+    geometryColumn: string;
+    customGeometryColumn: boolean;
+}
+export interface TrackedEntityMapping {
+    geometryColumn: string;
+    createEntities: boolean;
+    updateEntities: boolean;
+    trackedEntityInstanceColumn: string;
+    customTrackedEntityInstanceColumn: boolean;
+    customGeometryColumn: boolean;
+}
+export interface EventStageMapping {
+    eventDateColumn: string;
+    dueDateColumn: string;
+    eventIdColumn: string;
+    customDueDateColumn: boolean;
+    customEventDateColumn: boolean;
+    customEventIdColumn: boolean;
+    createEmptyEvents: boolean;
+    geometryColumn: string;
     createEvents: boolean;
     updateEvents: boolean;
-    isTracker: boolean;
-    remoteIsTracker: boolean;
+    uniqueEventDate: boolean;
+    completeEvents: boolean;
+    specificStage: string;
+    stage: string;
+    customGeometryColumn: boolean;
 }
 
 export interface IAggregateMapping {
@@ -239,6 +347,10 @@ export interface IMapping {
     dataSource: DataSource;
     dhis2SourceOptions: Partial<DHIS2SourceOptions>;
     dhis2DestinationOptions: Partial<DHIS2DestinationOptions>;
+    orgUnitMapping: Partial<OrgUnitMapping>;
+    enrollmentMapping: Partial<EnrollmentMapping>;
+    trackedEntityMapping: Partial<TrackedEntityMapping>;
+    eventStageMapping: Record<string, Partial<EventStageMapping>>;
     chunkSize: number;
     version: string;
 }
@@ -329,42 +441,16 @@ export interface IProgram {
 export interface RealMapping {
     isCustom: boolean;
     mandatory: boolean;
-    value: string;
-    eventDateColumn: string;
-    dueDateColumn: string;
-    eventIdColumn: string;
-    customDueDateColumn: boolean;
-    customEventDateColumn: boolean;
-    customEventIdColumn: boolean;
-    createEmptyEvents: boolean;
+    source: string;
     unique: boolean;
-    createEvents: boolean;
-    updateEvents: boolean;
-    uniqueEventDate: boolean;
     stage: string;
     isSpecific: boolean;
     valueType: string;
     isOrgUnit: boolean;
-    completeEvents: boolean;
-    geometryColumn: string;
-    customGeometryColumn: boolean;
     customType: string;
-    enrollmentDateColumn: string;
-    incidentDateColumn: string;
-    createEnrollments: boolean;
-    updateEnrollments: boolean;
-    customEnrollmentDateColumn: boolean;
-    customIncidentDateColumn: boolean;
-    createEntities: boolean;
-    updateEntities: boolean;
-    trackedEntityInstanceColumn: string;
-    customTrackedEntityInstanceColumn: boolean;
-    enrollmentIdColumn: string;
-    customEnrollmentIdColumn: boolean;
-    orgUnitColumn: string;
-    customOrgUnitColumn: boolean;
     isManual: boolean;
     destination: string;
+	format:string
 }
 
 export interface Mapping {
@@ -482,6 +568,12 @@ export interface Option extends OptionBase {
     options?: Option[];
     allowFutureDate?: boolean;
     path?: string;
+    isCustom?: boolean;
+    source?: string;
+    stage?: string;
+    customType?: string;
+    isManual?: boolean;
+    isSpecific?: boolean;
 }
 
 export interface MultiOption extends OptionBase {
@@ -983,18 +1075,9 @@ export interface GoDataOuTree {
     location: {
         id: string;
         name: string;
+        identifiers?: Array<{ code: string }>;
     };
 }
-
-export type DHIS2ProcessedData = {
-    enrollments: Array<Partial<Enrollment>>;
-    trackedEntityInstances: Array<Partial<TrackedEntityInstance>>;
-    events: Array<Partial<Event>>;
-    eventUpdates: Array<Partial<Event>>;
-    trackedEntityInstanceUpdates: Array<Partial<TrackedEntityInstance>>;
-    conflicts: any[];
-    errors: any[];
-};
 
 export interface DHIS2Response {
     httpStatus: string;
@@ -1084,13 +1167,6 @@ export type PartialEvent = Partial<{
     dueDate?: string;
 }>;
 
-export type OtherProcessed = {
-    newInserts: Array<any>;
-    updates: Array<any>;
-    events: Array<any>;
-    labResults: { [key: string]: any };
-};
-
 export type DHIS2SOptions = keyof DHIS2SourceOptions;
 export type DHIS2DOptions = keyof DHIS2DestinationOptions;
 export type AggregateOptions = keyof IAggregateMapping;
@@ -1122,7 +1198,7 @@ export type IEnrollment = Partial<
 
 export type CallbackArgs = {
     trackedEntityInstances: Array<Partial<TrackedEntityInstance>>;
-    data: any[];
+    data: any;
     currentAttributes: Array<{
         attribute: string;
         value: string;
@@ -1147,7 +1223,8 @@ export type FetchArgs = {
     withAttributes: boolean;
     numberOfUniqAttribute: number;
     data: any[];
-    setMessage: React.Dispatch<React.SetStateAction<string>>;
+    setMessage: (message: string) => void;
+    includeOuTree: boolean;
 };
 
 export type FlattenArgs = {
@@ -1169,4 +1246,11 @@ export type ConverterArgs = {
     trackedEntityInstances: Array<Partial<TrackedEntityInstance>>;
     data: any[];
     goData: any;
+};
+
+export type OU = {
+    id: string;
+    name: string;
+    level: number;
+    ancestors: Array<{ id: string; name: string; level: number }>;
 };

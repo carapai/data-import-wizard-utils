@@ -1,3 +1,4 @@
+import { fetchApiData } from "./fetch-api-data";
 import { fetchEvents } from "./fetch-events";
 import { fetchGoDataData } from "./fetch-go-data";
 import { fetchTrackedEntityInstances } from "./fetch-tracked-entities";
@@ -34,10 +35,11 @@ export async function getFetcher({
                 numberOfUniqAttribute,
                 withAttributes,
                 setMessage,
+                filters: mapping.dhis2SourceOptions.attributeFilters,
             },
             afterFetch,
         );
-    } else if (mapping.isSource && mapping.program.isTracker) {
+    } else if (mapping.isSource && !mapping.program.isTracker) {
         await fetchEvents({
             api,
             program: mapping.program.program,
@@ -94,6 +96,9 @@ export async function getFetcher({
             mapping.authentication,
         );
         afterFetch({ goDataData: foundGoData });
+    } else if (!mapping.isSource && mapping.dataSource === "api") {
+        const apiData = await fetchApiData(mapping.authentication);
+        afterFetch({ data: apiData });
     } else {
         afterFetch({ data });
     }

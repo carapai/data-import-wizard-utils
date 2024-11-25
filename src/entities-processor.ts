@@ -1,7 +1,13 @@
 import dayjs from "dayjs";
 import { Dictionary } from "lodash";
 import { fromPairs, groupBy, uniqBy } from "lodash/fp";
-import { IEnrollment, Mapping, TrackedEntityInstance } from "./interfaces";
+import {
+    EventStageMapping,
+    IEnrollment,
+    Mapping,
+    RealMapping,
+    TrackedEntityInstance,
+} from "./interfaces";
 
 export const processPreviousInstances = ({
     trackedEntityInstances,
@@ -10,13 +16,15 @@ export const processPreviousInstances = ({
     currentProgram,
     trackedEntityIdIdentifiesInstance,
     programStageMapping,
+    eventStageMapping,
 }: Partial<{
     trackedEntityInstances: Array<Partial<TrackedEntityInstance>>;
-    programUniqAttributes: string[];
+    programUniqAttributes: Array<Partial<RealMapping>>;
     programStageUniqueElements: Dictionary<string[]>;
     currentProgram: string;
     trackedEntityIdIdentifiesInstance: boolean;
     programStageMapping: Record<string, Mapping>;
+    eventStageMapping: Record<string, Partial<EventStageMapping>>;
 }>) => {
     const currentAttributes: Array<[string, any]> = [];
     const currentElements: Array<[string, any]> = [];
@@ -37,7 +45,9 @@ export const processPreviousInstances = ({
                     .flatMap(({ attribute, value }) => {
                         if (
                             attribute &&
-                            programUniqAttributes.includes(attribute)
+                            programUniqAttributes
+                                .map(({ destination }) => destination)
+                                .includes(attribute)
                         ) {
                             return value;
                         }
@@ -99,13 +109,15 @@ export const processPreviousInstances = ({
                                     ),
                                 ),
                         );
+
                         const uniqueEvents = Object.entries(
                             groupBy("programStage", allEvents),
                         ).flatMap(([stage, availableEvents]) => {
                             const stageElements =
                                 programStageUniqueElements[stage];
-                            const mapping = programStageMapping[stage];
-                            if (mapping) {
+                            const currentMapping = programStageMapping[stage];
+                            const { eventIdColumn } = eventStageMapping[stage];
+                            if (currentMapping) {
                                 const elements = availableEvents.map(
                                     (event) => {
                                         if (event.eventDate) {
@@ -147,7 +159,7 @@ export const processPreviousInstances = ({
                                                 )
                                                 .sort()
                                                 .join("");
-                                            if (mapping.info.eventIdColumn) {
+                                            if (eventIdColumn) {
                                                 dataElementKey = event.event;
                                             }
 

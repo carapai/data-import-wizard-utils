@@ -59,6 +59,7 @@ import {
     getProgramUniqAttributes,
 } from "./program";
 
+import { emptyProcessedData } from "./constants";
 import { fetchTrackedEntityInstances } from "./fetch-tracked-entities";
 import { flattenEntitiesByEvents } from "./flatten-dhis2";
 import { generateUid } from "./uid";
@@ -103,29 +104,39 @@ export function modifyGoDataOu(
 
 export function getLeavesWithParentInfo(
     node: GoDataOuTree,
-    parentInfo: Array<{ id: string; name: string }> = [],
+    parentInfo: Array<{ id: string; name: string; code?: string }> = [],
 ): Array<{
     id: string;
     name: string;
+    code?: string;
     parentInfo: Array<{ id: string; name: string }>;
 }> {
     if (!node.children || node.children.length === 0) {
-        return [{ id: node.location.id, name: node.location.name, parentInfo }];
+        return [
+            {
+                id: node.location.id,
+                name: node.location.name,
+                code: node.location.identifiers?.[0]?.code,
+                parentInfo,
+            },
+        ];
     }
-    const childLeaves = node.children.flatMap((child) =>
+    return node.children.flatMap((child) =>
         getLeavesWithParentInfo(child, [
             ...parentInfo,
-            { name: node.location.name, id: node.location.id },
+            {
+                name: node.location.name,
+                id: node.location.id,
+                code: node.location.identifiers?.[0]?.code,
+            },
         ]),
     );
-
-    return childLeaves;
 }
 
 export const makeFlipped = (dataMapping: Mapping) => {
     return fromPairs(
-        Object.entries(dataMapping).map(([option, { value }]) => {
-            return [value, option];
+        Object.entries(dataMapping).map(([option, { source }]) => {
+            return [source, option];
         }),
     );
 };
@@ -210,6 +221,7 @@ export const fetchRemote = async <IData>(
     authentication: Partial<Authentication> | undefined,
     url: string = "",
     params: { [key: string]: Param } = {},
+    headers: { [key: string]: string } = {},
 ) => {
     const api = makeRemoteApi({
         ...authentication,
@@ -398,7 +410,6 @@ export function findDifference(
         const attribute = attributes[key];
         if (attribute) {
         } else {
-            // console.log(key);
         }
 
         if (isArray(destinationValue) && isArray(sourceValue)) {
@@ -448,6 +459,7 @@ export const fetchGoDataHierarchy = async (
         authentication,
         "api/locations/hierarchical",
     );
+
     return hierarchy.flatMap((ou) => {
         if (locationIds.indexOf(ou.location.id) !== -1) {
             return getLeavesWithParentInfo(ou);
@@ -509,7 +521,6 @@ export const loadPreviousGoData = async (
         },
         "api/languages/english_us/language-tokens",
     );
-
     const actualTokens = fromPairs(
         tokens.tokens.map(({ token, translation }) => [token, translation]),
     );
@@ -523,7 +534,6 @@ export const loadPreviousGoData = async (
         },
         "api/locations",
     );
-
     const goDataOptions = await fetchRemote<GODataOption[]>(
         {
             ...rest,
@@ -613,37 +623,48 @@ export const evaluateMapping = (
     instanceData: any,
     flippedOptions: Dictionary<string>,
     flippedUnits: Dictionary<string>,
-    uniqAttributes: string[],
-    uniqColumns: string[],
+    uniqAttributes: Array<Partial<RealMapping>>,
 ) => {
     let errors: any[] = [];
     let conflicts: any[] = [];
-    const uniqValues = uniqColumns
-        .map((value) => getOr("", value, instanceData))
+
+    const uniqValues = uniqAttributes
+        .map(({ source }) => getOr("", source, instanceData))
         .join("");
+
+    const availableUniqueAttributes = uniqAttributes
+        .map(({ destination }) => destination)
+        .join("");
+
     let results: { [key: string]: any } = {};
     fields.forEach(
-        ({ value: val, optionSetValue, availableOptions, valueType }) => {
+        ({
+            value: val,
+            optionSetValue,
+            availableOptions,
+            valueType,
+            isOrgUnit,
+        }) => {
             const mapping = attributeMapping[val];
             if (mapping) {
                 const validation = ValueType[mapping.valueType];
-                let value = getOr("", mapping.value, instanceData);
+                let value = getOr("", mapping.source, instanceData);
                 if (mapping.isSpecific) {
-                    value = mapping.value;
+                    value = mapping.source;
                 } else if (value && valueType === "INTEGER") {
                     value = parseInt(value, 10);
                 } else if (valueType === "DATE" && value) {
                     value = value.slice(0, 10);
                 }
                 let result: any = { success: true };
-                if (optionSetValue) {
+                if (optionSetValue && value) {
                     value = flippedOptions[value] || value;
                     if (
                         availableOptions.findIndex(
                             (v: Option) =>
+                                v.value === value ||
                                 v.code === value ||
-                                v.id === value ||
-                                v.value === value,
+                                v.id === value,
                         ) !== -1
                     ) {
                         result = { ...result, success: true };
@@ -677,7 +698,7 @@ export const evaluateMapping = (
                         }
                         result = { ...result, success: false };
                     }
-                } else if (validation) {
+                } else if (value && validation) {
                     try {
                         result = validation.parse(value);
                         result = { ...result, success: true };
@@ -695,11 +716,11 @@ export const evaluateMapping = (
                                     value,
                                     attribute: val,
                                     valueType: mapping.valueType,
-                                    [uniqAttributes.join("")]: uniqValues,
+                                    [availableUniqueAttributes]: uniqValues,
                                     id: generateUid(),
                                 })),
                             ];
-                        } else if (value) {
+                        } else {
                             conflicts = [
                                 ...conflicts,
                                 ...issues.map((i: any) => ({
@@ -707,7 +728,7 @@ export const evaluateMapping = (
                                     value,
                                     attribute: val,
                                     valueType: mapping.valueType,
-                                    [uniqAttributes.join("")]: uniqValues,
+                                    [availableUniqueAttributes]: uniqValues,
                                     id: generateUid(),
                                 })),
                             ];
@@ -715,7 +736,7 @@ export const evaluateMapping = (
                     }
                 }
                 if (value && result.success) {
-                    if (mapping.isOrgUnit && flippedUnits[value]) {
+                    if (isOrgUnit && flippedUnits[value]) {
                         results = set(val, flippedUnits[value], results);
                     } else {
                         results = set(val, value, results);
@@ -797,7 +818,7 @@ export const groupGoData4Insert = async (
         username,
         ...rest
     } = authentication;
-    setMessage(() => "Getting auth token");
+    // setMessage(() => "Getting auth token");
     let response: GODataTokenGenerationResponse | undefined = undefined;
     try {
         response = await postRemote<GODataTokenGenerationResponse>(
@@ -808,7 +829,9 @@ export const groupGoData4Insert = async (
                 password,
             },
         );
-    } catch (error) {}
+    } catch (error) {
+        console.log(error);
+    }
     if (response) {
         const token = response.id;
         for (const p of inserts.person) {
@@ -1077,16 +1100,16 @@ export const groupGoData4Insert = async (
 export const processLineList = ({
     data,
     mapping,
-    organisationUnitMapping,
+    flippedOrgUnits,
+    flippedAttribution,
 }: {
     data: any[];
     mapping: Partial<IMapping>;
-    organisationUnitMapping: Mapping;
+    flippedOrgUnits: Record<string, string>;
+    flippedAttribution: Record<string, string>;
 }): { validData: Array<AggDataValue>; invalidData: any[] } => {
     const periodType = mapping.aggregate.periodType;
-    const {
-        info: { orgUnitColumn },
-    } = organisationUnitMapping;
+    const { orgUnitColumn } = mapping.orgUnitMapping;
     const {
         aggregate: {
             dataElementColumn,
@@ -1094,6 +1117,8 @@ export const processLineList = ({
             categoryOptionComboColumn,
             attributeOptionComboColumn,
             valueColumn,
+            hasAttribution,
+            attributionMerged,
         },
     } = mapping;
 
@@ -1101,14 +1126,23 @@ export const processLineList = ({
     let invalidData: any[] = [];
 
     for (const a of data) {
-        const aggValues: AggDataValue = {
+        let aggValues: AggDataValue = {
             dataElement: a[dataElementColumn],
             period: a[periodColumn],
-            orgUnit: a[orgUnitColumn],
+            orgUnit: flippedOrgUnits[a[orgUnitColumn]],
             categoryOptionCombo: a[categoryOptionComboColumn],
             value: a[valueColumn],
-            attributeOptionCombo: a[attributeOptionComboColumn],
         };
+
+        if (hasAttribution) {
+            if (attributionMerged) {
+                aggValues = {
+                    ...aggValues,
+                    attributeOptionCombo:
+                        flippedAttribution[a[attributeOptionComboColumn]],
+                };
+            }
+        }
         const { validData: val, invalidData: inv } = validateAggValue(
             aggValues,
             periodType,
@@ -1128,18 +1162,16 @@ export const processElements = ({
     mapping,
     dataMapping,
     data,
-    organisationUnitMapping,
-    attributionMapping,
+    flippedOrgUnits,
+    flippedAttribution,
 }: {
     data: any[];
     mapping: Partial<IMapping>;
     dataMapping: Mapping;
-    organisationUnitMapping: Mapping;
-    attributionMapping: Mapping;
+    flippedOrgUnits: Record<string, string>;
+    flippedAttribution: Record<string, string>;
 }): { validData: Array<AggDataValue>; invalidData: any[] } => {
-    const {
-        info: { orgUnitColumn },
-    } = organisationUnitMapping;
+    const { orgUnitColumn } = mapping.orgUnitMapping;
     const periodType = mapping.aggregate.periodType;
     const {
         aggregate: {
@@ -1153,20 +1185,21 @@ export const processElements = ({
     let validData: AggDataValue[] = [];
     let invalidData: any[] = [];
     data.forEach((d) => {
-        return Object.entries(dataMapping).forEach(([key, { value }]) => {
+        return Object.entries(dataMapping).forEach(([key, { source }]) => {
             const [dataElement, categoryOptionCombo] = key.split(",");
             let result: AggDataValue = {
                 dataElement,
                 categoryOptionCombo,
-                value: d[value],
-                orgUnit: d[orgUnitColumn],
+                value: d[source],
+                orgUnit: flippedOrgUnits[d[orgUnitColumn]],
                 period: d[periodColumn],
             };
             if (hasAttribution) {
                 if (attributionMerged) {
                     result = {
                         ...result,
-                        attributeOptionCombo: d[attributeOptionComboColumn],
+                        attributeOptionCombo:
+                            flippedAttribution[d[attributeOptionComboColumn]],
                     };
                 }
             }
@@ -1319,39 +1352,37 @@ export const processDataSet = ({
     data,
     mapping,
     dataMapping,
-    organisationUnitMapping,
-    attributionMapping,
+    flippedOrgUnits,
+    flippedAttribution,
 }: {
     data: any[];
     mapping: Partial<IMapping>;
     dataMapping: Mapping;
-    organisationUnitMapping: Mapping;
-    attributionMapping: Mapping;
+    flippedOrgUnits: Record<string, string>;
+    flippedAttribution: Record<string, string>;
 }): { validData: Array<AggDataValue>; invalidData: any[] } => {
     const periodType = mapping.aggregate.periodType;
-    const flippedUnits = makeFlipped(organisationUnitMapping);
     const flippedMapping = makeFlipped(dataMapping);
-    const flippedAttribution = makeFlipped(attributionMapping);
     let validData: AggDataValue[] = [];
     let invalidData: any[] = [];
+
     data.forEach((d) => {
         const key = `${d["dataElement"]},${d["categoryOptionCombo"]}`;
         const mapping = flippedMapping[key];
-        const orgUnit = flippedUnits[d["orgUnit"]];
+        const orgUnit = flippedOrgUnits[d["orgUnit"]];
         const attributeOptionCombo =
             flippedAttribution[d["attributeOptionCombo"]];
 
-        if (mapping && orgUnit && attributeOptionCombo) {
+        if (mapping && orgUnit) {
             const [dataElement, categoryOptionCombo] = mapping.split(",");
             const aggValues: AggDataValue = {
                 dataElement,
                 categoryOptionCombo,
                 value: d["value"],
                 orgUnit,
-                attributeOptionCombo,
                 period: d["period"],
+                attributeOptionCombo,
             };
-
             const { validData: val, invalidData: inv } = validateAggValue(
                 aggValues,
                 periodType,
@@ -1372,23 +1403,20 @@ export const processIndicators = ({
     mapping,
     dataMapping,
     data,
-    organisationUnitMapping,
-    attributionMapping,
+    flippedOrgUnits,
 }: {
     data: any[];
     mapping: Partial<IMapping>;
     dataMapping: Mapping;
-    organisationUnitMapping: Mapping;
-    attributionMapping: Mapping;
+    flippedOrgUnits: Record<string, string>;
 }): { validData: Array<AggDataValue>; invalidData: any[] } => {
-    const flippedUnits = makeFlipped(organisationUnitMapping);
     const periodType = mapping.aggregate.periodType;
     let validData: AggDataValue[] = [];
     let invalidData: any[] = [];
     data.forEach((d) => {
-        return Object.entries(dataMapping).forEach(([key, { value }]) => {
-            const orgUnit = flippedUnits[d["ou"]];
-            if (d["dx"] === value && orgUnit) {
+        return Object.entries(dataMapping).forEach(([key, { source }]) => {
+            const orgUnit = flippedOrgUnits[d["ou"]];
+            if (d["dx"] === source && orgUnit) {
                 const [dataElement, categoryOptionCombo, attributeOptionCombo] =
                     key.split(",");
 
@@ -1427,7 +1455,7 @@ export const validateValue = ({
     uniqueKey,
 }: {
     option: Option;
-    mapping: Partial<RealMapping>;
+    mapping: Partial<Option>;
     data: any;
     flippedOptions: Dictionary<string>;
     field: string;
@@ -1438,15 +1466,15 @@ export const validateValue = ({
     success: boolean;
     value: any;
 }> => {
-    if (mapping.value) {
+    if (mapping.source) {
         const validation = ValueType[option.valueType];
-        let value = getOr("", mapping.value, data);
+        let value = getOr("", mapping.source, data);
         if (mapping.isSpecific) {
-            value = mapping.value;
+            value = mapping.source;
         }
         if (mapping.isCustom) {
             if (mapping.customType === "join columns") {
-                value = mapping.value
+                value = mapping.source
                     .split(",")
                     .map((col) => getOr("", col, data))
                     .join(" ");
@@ -1519,6 +1547,47 @@ export const validateValue = ({
                         conflicts: [],
                     };
                 }
+                if (
+                    option.valueType === "BOOLEAN" &&
+                    ["true", "1", "yes", "ok"].includes(
+                        String(value).toLowerCase().trim(),
+                    )
+                ) {
+                    return {
+                        success: true,
+                        value: "true",
+                        errors: [],
+                        conflicts: [],
+                    };
+                }
+
+                if (
+                    option.valueType === "BOOLEAN" &&
+                    ["false", "0", "no"].includes(
+                        String(value).toLowerCase().trim(),
+                    )
+                ) {
+                    return {
+                        success: true,
+                        value: "false",
+                        errors: [],
+                        conflicts: [],
+                    };
+                }
+
+                if (
+                    option.valueType === "TRUE_ONLY" &&
+                    ["true", "1", "yes", "ok"].includes(
+                        String(value).toLowerCase().trim(),
+                    )
+                ) {
+                    return {
+                        success: true,
+                        value: "true",
+                        errors: [],
+                        conflicts: [],
+                    };
+                }
                 return { success: true, value, errors: [], conflicts: [] };
             } catch (error) {
                 const { issues } = error;
@@ -1577,7 +1646,7 @@ export const processAttributes = ({
 
     Object.entries(attributeMapping).forEach(([attribute, aMapping]) => {
         const currentAttribute = attributes[attribute];
-        if (aMapping.value && currentAttribute) {
+        if (aMapping.source && currentAttribute) {
             const {
                 success,
                 conflicts: cs,
@@ -1649,7 +1718,7 @@ export const makeEvent = ({
     geometryColumn: string;
     eventIdColumn: string;
     elements: {
-        [key: string]: Partial<RealMapping>;
+        [key: string]: Partial<Option>;
     };
     programStage: string;
     enrollment?: IEnrollment;
@@ -1836,12 +1905,14 @@ export const processInstances = async (
         enrollmentMapping: Mapping;
         setMessage: React.Dispatch<React.SetStateAction<string>>;
     },
-    callback: (processedData: Processed) => Promise<void>,
+    callback: (processedData: Processed) => void,
 ) => {
     let stages: string[] = [];
     const programUniqAttributes = getProgramUniqAttributes(attributeMapping);
-    const programStageUniqueElements =
-        getProgramStageUniqColumns(programStageMapping);
+    const programStageUniqueElements = getProgramStageUniqColumns(
+        mapping.eventStageMapping,
+        programStageMapping,
+    );
 
     if (
         mapping.program?.program === mapping.program?.remoteProgram &&
@@ -1870,8 +1941,7 @@ export const processInstances = async (
             },
         );
     } else {
-        const { info } = attributeMapping;
-        const { trackedEntityInstanceColumn } = info;
+        const { trackedEntityInstanceColumn } = mapping.trackedEntityMapping;
         if (trackedEntityInstanceColumn) {
             trackedInstanceIds = trackedEntityInstances.flatMap(
                 ({ trackedEntityInstance }) => {
@@ -1927,7 +1997,7 @@ export const processInstances = async (
         program,
         enrollmentMapping,
     });
-    await callback(convertedData);
+    callback({ ...emptyProcessedData, dhis2: convertedData });
 };
 
 export const validatePeriod = (period: string, periodType: string): boolean => {
@@ -2018,124 +2088,6 @@ export const validateAggValue = (
     }
     return { validData, invalidData };
 };
-// export const convertDateToPeriods = (date: string): Dictionary<string> => {
-//     return {
-//         DAILY: getFixedPeriodByDate({
-//             date: dayjs(date).format("YYYY-MM-DD"),
-//             calendar: "gregory",
-//             periodType: "DAILY",
-//             locale: "en",
-//         }).id,
-//         WEEKLY: getFixedPeriodByDate({
-//             date: dayjs(date).format("YYYY-MM-DD"),
-//             calendar: "gregory",
-//             periodType: "WEEKLY",
-//             locale: "en",
-//         }).id,
-//         WEEKLYWED: getFixedPeriodByDate({
-//             date: dayjs(date).format("YYYY-MM-DD"),
-//             calendar: "gregory",
-//             periodType: "WEEKLYWED",
-//             locale: "en",
-//         }).id,
-//         WEEKLYTHU: getFixedPeriodByDate({
-//             date: dayjs(date).format("YYYY-MM-DD"),
-//             calendar: "gregory",
-//             periodType: "WEEKLYTHU",
-//             locale: "en",
-//         }).id,
-//         WEEKLYSAT: getFixedPeriodByDate({
-//             date: dayjs(date).format("YYYY-MM-DD"),
-//             calendar: "gregory",
-//             periodType: "WEEKLYSAT",
-//             locale: "en",
-//         }).id,
-//         WEEKLYSUN: getFixedPeriodByDate({
-//             date: dayjs(date).format("YYYY-MM-DD"),
-//             calendar: "gregory",
-//             periodType: "WEEKLYSUN",
-//             locale: "en",
-//         }).id,
-//         BIWEEKLY: getFixedPeriodByDate({
-//             date: dayjs(date).format("YYYY-MM-DD"),
-//             calendar: "gregory",
-//             periodType: "BIWEEKLY",
-//             locale: "en",
-//         }).id,
-//         MONTHLY: getFixedPeriodByDate({
-//             date: dayjs(date).format("YYYY-MM-DD"),
-//             calendar: "gregory",
-//             periodType: "MONTHLY",
-//             locale: "en",
-//         }).id,
-//         BIMONTHLY: getFixedPeriodByDate({
-//             date: dayjs(date).format("YYYY-MM-DD"),
-//             calendar: "gregory",
-//             periodType: "BIMONTHLY",
-//             locale: "en",
-//         }).id,
-//         QUARTERLY: getFixedPeriodByDate({
-//             date: dayjs(date).format("YYYY-MM-DD"),
-//             calendar: "gregory",
-//             periodType: "QUARTERLY",
-//             locale: "en",
-//         }).id,
-//         QUARTERLYNOV: getFixedPeriodByDate({
-//             date: dayjs(date).format("YYYY-MM-DD"),
-//             calendar: "gregory",
-//             periodType: "QUARTERLYNOV",
-//             locale: "en",
-//         }).id,
-//         SIXMONTHLY: getFixedPeriodByDate({
-//             date: dayjs(date).format("YYYY-MM-DD"),
-//             calendar: "gregory",
-//             periodType: "SIXMONTHLY",
-//             locale: "en",
-//         }).id,
-//         SIXMONTHLYAPR: getFixedPeriodByDate({
-//             date: dayjs(date).format("YYYY-MM-DD"),
-//             calendar: "gregory",
-//             periodType: "SIXMONTHLYAPR",
-//             locale: "en",
-//         }).id,
-//         SIXMONTHLYNOV: getFixedPeriodByDate({
-//             date: dayjs(date).format("YYYY-MM-DD"),
-//             calendar: "gregory",
-//             periodType: "SIXMONTHLYNOV",
-//             locale: "en",
-//         }).id,
-//         YEARLY: getFixedPeriodByDate({
-//             date: dayjs(date).format("YYYY-MM-DD"),
-//             calendar: "gregory",
-//             periodType: "YEARLY",
-//             locale: "en",
-//         }).id,
-//         FYNOV: getFixedPeriodByDate({
-//             date: dayjs(date).format("YYYY-MM-DD"),
-//             calendar: "gregory",
-//             periodType: "FYNOV",
-//             locale: "en",
-//         }).id,
-//         FYOCT: getFixedPeriodByDate({
-//             date: dayjs(date).format("YYYY-MM-DD"),
-//             calendar: "gregory",
-//             periodType: "FYOCT",
-//             locale: "en",
-//         }).id,
-//         FYJUL: getFixedPeriodByDate({
-//             date: dayjs(date).format("YYYY-MM-DD"),
-//             calendar: "gregory",
-//             periodType: "FYJUL",
-//             locale: "en",
-//         }).id,
-//         FYAPR: getFixedPeriodByDate({
-//             date: dayjs(date).format("YYYY-MM-DD"),
-//             calendar: "gregory",
-//             periodType: "FYAPR",
-//             locale: "en",
-//         }).id,
-//     };
-// };
 
 export function buildParameters(mapping: Partial<IMapping>) {
     let additionalParams = {};
@@ -2199,4 +2151,31 @@ export const isDHIS2 = (mapping: Partial<IMapping>) => {
             "manual-dhis2-program-indicators",
         ].indexOf(mapping.dataSource) !== -1
     );
+};
+
+export function cleanString(
+    input: string,
+    preserveSpaces: boolean = false,
+): string {
+    if (preserveSpaces) {
+        return input.replace(/[^a-zA-Z0-9 ]/g, "");
+    } else {
+        return input.replace(/[^a-zA-Z0-9]/g, "");
+    }
+}
+
+export const flipMapping = (mapping: Mapping, isOrgUnit: boolean = false) => {
+    const flipped: Record<string, string> = {};
+    Object.entries(mapping).forEach(([unit, value]) => {
+        if (isOrgUnit) {
+            value.source.split(",").forEach((u) => {
+                flipped[cleanString(u).toLowerCase()] = unit;
+            });
+        } else {
+            value.source.split(",").forEach((u) => {
+                flipped[u] = unit;
+            });
+        }
+    });
+    return flipped;
 };

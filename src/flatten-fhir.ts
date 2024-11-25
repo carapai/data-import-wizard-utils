@@ -8,17 +8,19 @@ export function flattenBundle(bundle: IfhirR4.IBundle) {
     const observations: IfhirR4.IObservation[] = [];
     const patients: IfhirR4.IPatient[] = [];
 
-    bundle.entry.forEach((entry) => {
-        if (entry.resource.resourceType === "Encounter") {
-            encounters.push(entry.resource);
-        } else if (entry.resource.resourceType === "Observation") {
-            observations.push(entry.resource);
-        } else if (entry.resource.resourceType === "EpisodeOfCare") {
-            episodeOfCares.push(entry.resource);
-        } else if (entry.resource.resourceType === "Patient") {
-            patients.push(entry.resource);
-        }
-    });
+    if (bundle && bundle.entry) {
+        bundle.entry.forEach((entry) => {
+            if (entry.resource.resourceType === "Encounter") {
+                encounters.push(entry.resource);
+            } else if (entry.resource.resourceType === "Observation") {
+                observations.push(entry.resource);
+            } else if (entry.resource.resourceType === "EpisodeOfCare") {
+                episodeOfCares.push(entry.resource);
+            } else if (entry.resource.resourceType === "Patient") {
+                patients.push(entry.resource);
+            }
+        });
+    }
 
     return encounters.flatMap((encounter) => {
         const currentEpisodeOfCare = episodeOfCares.find((a) => {
@@ -37,8 +39,6 @@ export function flattenBundle(bundle: IfhirR4.IBundle) {
         const patient = patients.find((p) => {
             return encounter.subject.reference.includes(p.id);
         });
-
-        console.log(patient);
 
         const currentObservations = observations.flatMap((observation) => {
             if (observation.encounter.reference.includes(encounter.id)) {
@@ -59,22 +59,77 @@ export function flattenBundle(bundle: IfhirR4.IBundle) {
                     realValue = valueCode.code;
                 }
 
-                return fromPairs(
+                let all = fromPairs(
                     observation.code.coding.map((a) => [a.code, realValue]),
                 );
+                return {
+                    ...all,
+                    effectiveDateTime: observation.effectiveDateTime,
+                    observation: { id: observation.id },
+                };
             }
 
             return [];
         });
 
         if (currentEpisodeOfCare) {
-            let results: Record<string, string> = {
-                occurredAt: dayjs(encounter.period.start).format("YYYY-MM-DD"),
-                enrollmentDate: dayjs(currentEpisodeOfCare.period.start).format(
-                    "YYYY-MM-DD",
-                ),
-            };
+            let identifier = {};
 
+            patient.identifier.forEach((i) => {
+                identifier = {
+                    ...identifier,
+                    [i.type.text]: i.value,
+                };
+                i.type.coding.forEach((a) => {
+                    identifier = {
+                        ...identifier,
+                        [a.code]: i.value,
+                    };
+                });
+            });
+            let results: Record<string, any> = {
+                encounter: {
+                    period: {
+                        start: encounter.period.start,
+                        end: encounter.period.end,
+                    },
+                    id: encounter.id,
+                },
+                episodeOfCare: {
+                    id: encounter.id,
+                    period: {
+                        start: currentEpisodeOfCare.period.start,
+                        end: currentEpisodeOfCare.period.end,
+                    },
+                },
+                patient: {
+                    id: patient.id,
+                    given: patient.name[0].given.join(" "),
+                    family: patient.name[0].family,
+                    name:
+                        patient.name[0].given.join(" ") +
+                        patient.name[0].family,
+                    birthDate: dayjs(patient.birthDate).format("YYYY-MM-DD"),
+                    gender: patient.gender,
+                    deceasedDateTime: patient.deceasedDateTime,
+                    deceasedBoolean: patient.deceasedBoolean,
+                    managingOrganization: {
+                        ...patient.managingOrganization,
+                        reference:
+                            patient.managingOrganization.reference.split(
+                                "/",
+                            )[1],
+                    },
+                    address: {
+                        city: patient.address[0].city ?? "",
+                        country: patient.address[0].country ?? "",
+                        state: patient.address[0].state ?? "",
+                        postalCode: patient.address[0].postalCode ?? "",
+                        district: patient.address[0].district ?? "",
+                    },
+                    identifier,
+                },
+            };
             for (const obs of currentObservations) {
                 results = { ...results, ...obs };
             }
