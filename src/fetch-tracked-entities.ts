@@ -1,5 +1,5 @@
 import { AxiosInstance } from "axios";
-import { fromPairs, isArray, isEmpty, unionBy, uniq } from "lodash";
+import { fromPairs, isArray, unionBy, uniq } from "lodash";
 import { chunk, uniqBy } from "lodash/fp";
 import { fetchTrackedEntityInstancesByIds } from "./fetch-tracked-entities-by-ids";
 import { CallbackArgs, Filter, OU, TrackedEntityInstance } from "./interfaces";
@@ -232,7 +232,6 @@ export const queryTrackedEntityInstances = async (
             pager,
         };
     }
-
     return { trackedEntityInstances: [] };
 };
 
@@ -250,6 +249,7 @@ export const fetchTrackedEntityInstances = async (
         numberOfUniqAttribute = 1,
         setMessage,
         filters = [],
+        fetchBy = "program",
     }: Partial<{
         additionalParams: { [key: string]: string };
         uniqueAttributeValues: Array<{ [key: string]: string }>;
@@ -261,15 +261,18 @@ export const fetchTrackedEntityInstances = async (
         pageSize: string;
         numberOfUniqAttribute: number;
         filters: Filter[];
+        fetchBy: "program" | "trackedEntityType";
     }> &
         Required<{
             api: Partial<{ engine: any; axios: AxiosInstance }>;
             setMessage: (message: string) => void;
         }>,
-    afterFetch: (args: Partial<CallbackArgs>) => void = undefined,
+    afterFetch?: (args: Partial<CallbackArgs>) => void,
 ): Promise<{
     trackedEntityInstances: Array<Partial<TrackedEntityInstance>>;
+    completed: boolean;
 }> => {
+    let completed = false;
     let foundInstances: Array<Partial<TrackedEntityInstance>> = [];
     if (trackedEntityInstances.filter((a) => a !== undefined).length > 0) {
         const data = await fetchTrackedEntityInstancesByIds({
@@ -301,9 +304,9 @@ export const fetchTrackedEntityInstances = async (
                 `${attribute}:in:${attributeValues.join(";")}`,
             );
             params.append("fields", fields);
-            if (trackedEntityType) {
+            if (fetchBy === "trackedEntityType") {
                 params.append("trackedEntityType", trackedEntityType);
-            } else if (program) {
+            } else if (fetchBy === "program") {
                 params.append("program", program);
             }
             params.append("skipPaging", "true");
@@ -321,19 +324,23 @@ export const fetchTrackedEntityInstances = async (
                 program,
             );
             setMessage(`Fetching ${page} of ${chunkedData.length} pages`);
-            const pager = {
-                pageSize: Number(pageSize),
-                total: allValues.length,
-                page,
-                pageCount: chunkedData.length,
-            };
+
             if (afterFetch) {
                 afterFetch({
                     trackedEntityInstances: joinedInstances,
-                    pager,
+                    pager: {
+                        pageSize: Number(pageSize),
+                        total: allValues.length,
+                        page,
+                        pageCount: chunkedData.length,
+                    },
                 });
             } else {
                 foundInstances = foundInstances.concat(joinedInstances);
+            }
+
+            if (page === chunkedData.length) {
+                completed = true;
             }
             page = page + 1;
         }
@@ -351,10 +358,10 @@ export const fetchTrackedEntityInstances = async (
                     params.append("filter", `${attribute}:eq:${value}`),
                 );
                 params.append("fields", fields);
-                if (program) {
-                    params.append("program", program);
-                } else if (trackedEntityType) {
+                if (fetchBy === "trackedEntityType") {
                     params.append("trackedEntityType", trackedEntityType);
+                } else if (fetchBy === "program") {
+                    params.append("program", program);
                 }
                 params.append("skipPaging", "true");
                 if (!additionalParams["ou"]) {
@@ -394,17 +401,23 @@ export const fetchTrackedEntityInstances = async (
         }
     } else if (!withAttributes) {
         let page = 1;
+        let total = 1;
+        let currentPager: Partial<{
+            page: number;
+            pageCount: number;
+            total: number;
+            pageSize: number;
+        }> = { page: 1, pageCount: 1, pageSize: 50, total: 1 };
         const params = new URLSearchParams({
             ...additionalParams,
             fields,
             page: String(page),
             pageSize,
         });
-
-        if (program) {
-            params.append("program", program);
-        } else if (trackedEntityType) {
+        if (fetchBy === "trackedEntityType") {
             params.append("trackedEntityType", trackedEntityType);
+        } else if (fetchBy === "program") {
+            params.append("program", program);
         }
         if (!additionalParams["ou"] && !additionalParams["ouMode"]) {
             params.append("ouMode", "ALL");
@@ -422,49 +435,42 @@ export const fetchTrackedEntityInstances = async (
             }
         }
 
-        setMessage(`Fetching data for the first page`);
-        const first = new URLSearchParams(params);
-        first.append("totalPages", "true");
-        const { pager, trackedEntityInstances, ...rest } =
-            await queryTrackedEntityInstances(api, first);
-        const joinedInstances = joinAttributes(trackedEntityInstances, program);
-        if (afterFetch) {
-            afterFetch({
-                trackedEntityInstances: joinedInstances,
-                pager,
-            });
-        } else {
-            foundInstances = foundInstances.concat(joinedInstances);
-        }
-        if (!isEmpty(pager) && pager.pageCount > 1) {
-            for (let p = 2; p <= pager.pageCount; p++) {
-                const second = new URLSearchParams(params);
-                second.delete("page");
-                second.append("page", String(p));
-                try {
-                    setMessage(`Fetching data for ${p} of ${pager.pageCount}`);
-                    const { trackedEntityInstances } =
-                        await queryTrackedEntityInstances(api, second);
-                    const joinedInstances = joinAttributes(
-                        trackedEntityInstances,
-                        program,
-                    );
-
-                    if (afterFetch) {
-                        afterFetch({
-                            trackedEntityInstances: joinedInstances,
-                            pager: { ...pager, page: p },
-                        });
-                    } else {
-                        foundInstances = foundInstances.concat(joinedInstances);
-                    }
-                } catch (error) {
-                    console.log(error);
-                }
+        while (total > 0) {
+            const first = new URLSearchParams(params);
+            first.delete("page");
+            first.append("page", String(page));
+            if (page === 1) {
+                setMessage(`Fetching data for the first page`);
+                first.append("totalPages", "true");
+            } else {
+                setMessage(
+                    `Fetching data for ${page} of ${currentPager.pageCount}`,
+                );
+                first.delete("totalPages");
             }
+
+            const { pager, trackedEntityInstances } =
+                await queryTrackedEntityInstances(api, first);
+            const joinedInstances = joinAttributes(
+                trackedEntityInstances,
+                program,
+            );
+            if (page === 1) {
+                currentPager = pager;
+            }
+            if (afterFetch) {
+                afterFetch({
+                    trackedEntityInstances: joinedInstances,
+                    pager: page === 1 ? pager : { ...currentPager, page },
+                });
+            } else {
+                foundInstances = foundInstances.concat(joinedInstances);
+            }
+            page = page + 1;
+            total = trackedEntityInstances.length;
         }
     } else if (afterFetch) {
         afterFetch({});
     }
-    return { trackedEntityInstances: foundInstances };
+    return { trackedEntityInstances: foundInstances, completed };
 };

@@ -7,6 +7,7 @@ export function flattenBundle(bundle: IfhirR4.IBundle) {
     const episodeOfCares: IfhirR4.IEpisodeOfCare[] = [];
     const observations: IfhirR4.IObservation[] = [];
     const patients: IfhirR4.IPatient[] = [];
+    const persons: IfhirR4.IPerson[] = [];
 
     if (bundle && bundle.entry) {
         bundle.entry.forEach((entry) => {
@@ -18,6 +19,8 @@ export function flattenBundle(bundle: IfhirR4.IBundle) {
                 episodeOfCares.push(entry.resource);
             } else if (entry.resource.resourceType === "Patient") {
                 patients.push(entry.resource);
+            } else if (entry.resource.resourceType === "Person") {
+                persons.push(entry.resource);
             }
         });
     }
@@ -40,6 +43,10 @@ export function flattenBundle(bundle: IfhirR4.IBundle) {
             return encounter.subject.reference.includes(p.id);
         });
 
+        const person = persons.find((p) => {
+            return encounter.subject.reference.includes(p.id);
+        });
+
         const currentObservations = observations.flatMap((observation) => {
             if (observation.encounter.reference.includes(encounter.id)) {
                 let realValue =
@@ -58,7 +65,6 @@ export function flattenBundle(bundle: IfhirR4.IBundle) {
                         );
                     realValue = valueCode.code;
                 }
-
                 let all = fromPairs(
                     observation.code.coding.map((a) => [a.code, realValue]),
                 );
@@ -68,13 +74,23 @@ export function flattenBundle(bundle: IfhirR4.IBundle) {
                     observation: { id: observation.id },
                 };
             }
-
             return [];
         });
 
         if (currentEpisodeOfCare) {
             let identifier = {};
-
+            person.identifier.forEach((i) => {
+                identifier = {
+                    ...identifier,
+                    [i.type.text]: i.value,
+                };
+                i.type.coding.forEach((a) => {
+                    identifier = {
+                        ...identifier,
+                        [a.code]: i.value,
+                    };
+                });
+            });
             patient.identifier.forEach((i) => {
                 identifier = {
                     ...identifier,
@@ -127,7 +143,7 @@ export function flattenBundle(bundle: IfhirR4.IBundle) {
                         postalCode: patient.address[0].postalCode ?? "",
                         district: patient.address[0].district ?? "",
                     },
-                    identifier,
+                    ...identifier,
                 },
             };
             for (const obs of currentObservations) {

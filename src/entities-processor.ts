@@ -63,23 +63,16 @@ export const processPreviousInstances = ({
                     attributeKey,
                     trackedEntityInstance,
                 ]);
-                currentAttributes.push([
-                    attributeKey,
-                    allAttributes.map(({ attribute, value }) => ({
-                        attribute,
-                        value,
-                    })),
-                ]);
-
+                currentAttributes.push([attributeKey, uniqueAttributes]);
                 currentOrgUnits.push([attributeKey, String(orgUnit)]);
                 if (enrollments.length > 0) {
-                    const previousEnrollment = enrollments.filter(
+                    const previousEnrollments = enrollments.filter(
                         ({ program }) => program === currentProgram,
                     );
-                    if (previousEnrollment.length > 0) {
+                    if (previousEnrollments.length > 0) {
                         currentEnrollments.push([
                             attributeKey,
-                            previousEnrollment.map(
+                            previousEnrollments.map(
                                 ({
                                     enrollment,
                                     enrollmentDate,
@@ -101,22 +94,33 @@ export const processPreviousInstances = ({
                                 }),
                             ),
                         ]);
-                        const allEvents = previousEnrollment.flatMap(
-                            ({ events }) =>
-                                events.filter((a) =>
-                                    Object.keys(programStageMapping).includes(
-                                        a.programStage,
-                                    ),
+
+                        const allEvents = enrollments.flatMap(({ events }) =>
+                            events.filter(({ programStage }) =>
+                                Object.keys(programStageMapping).includes(
+                                    programStage,
                                 ),
+                            ),
                         );
+
+                        console.log(allEvents, previousEnrollments);
 
                         const uniqueEvents = Object.entries(
                             groupBy("programStage", allEvents),
                         ).flatMap(([stage, availableEvents]) => {
-                            const stageElements =
+                            let stageElements =
                                 programStageUniqueElements[stage];
                             const currentMapping = programStageMapping[stage];
-                            const { eventIdColumn } = eventStageMapping[stage];
+                            const { uniqueEventDate = false } =
+                                eventStageMapping?.[stage] ?? {};
+
+                            if (uniqueEventDate) {
+                                stageElements =
+                                    stageElements.concat("eventDate");
+                            }
+
+                            const { eventIdColumn } =
+                                eventStageMapping?.[stage] ?? {};
                             if (currentMapping) {
                                 const elements = availableEvents.map(
                                     (event) => {

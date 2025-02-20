@@ -26,6 +26,7 @@ import {
 } from "./program";
 
 import { flattenGoData } from "./flatten-go-data";
+import { sortOptionsByMandatory } from "./utils";
 
 export const getParentName = (parent: Partial<DHIS2OrgUnit>) => {
     let first = parent;
@@ -72,7 +73,7 @@ export const makeMetadata = ({
     programIndicators,
     indicators,
     dhis2DataSet,
-    previous,
+    fhir,
 }: Partial<{
     data: any[];
     mapping: Partial<IMapping>;
@@ -93,20 +94,19 @@ export const makeMetadata = ({
         organisationUnitMapping: Mapping;
         enrollmentMapping: Mapping;
     };
+    fhir: {
+        concepts: any[];
+        labelColumn: string;
+        valueColumn: string;
+    };
 }>) => {
-    const {
-        programStageMapping = {},
-        attributeMapping = {},
-        organisationUnitMapping = {},
-        enrollmentMapping = {},
-    } = previous || {};
     let results: Metadata = {
         sourceOrgUnits: [],
         destinationOrgUnits: [],
         sourceColumns: [],
         destinationColumns: [],
-        destinationAttributes: [],
-        sourceAttributes: [],
+        destinationTrackedEntityTypeAttributes: [],
+        sourceTrackedEntityTypeAttributes: [],
         destinationStages: [],
         sourceStages: [],
         uniqueAttributeValues: [],
@@ -124,6 +124,8 @@ export const makeMetadata = ({
         sourceCategories: [],
         sourceEnrollmentAttributes: [],
         destinationEnrollmentAttributes: [],
+        sourceTrackedEntityAttributes: [],
+        destinationTrackedEntityAttributes: [],
     };
 
     const { type, orgUnitMapping: { orgUnitColumn } = { orgUnitColumn: "" } } =
@@ -131,27 +133,19 @@ export const makeMetadata = ({
 
     if (type === "individual") {
         const { elements, attributes } = flattenProgram(program);
-        const { enrollmentAttributes, trackedEntityAttributes } =
-            getAttributes(program);
-			
-        results.destinationAttributes = trackedEntityAttributes.sort((a, b) => {
-            if (a.mandatory && !b.mandatory) {
-                return -1;
-            } else if (!a.mandatory && b.mandatory) {
-                return 1;
-            }
-            return 0;
-        });
-        results.destinationEnrollmentAttributes = enrollmentAttributes.sort(
-            (a, b) => {
-                if (a.mandatory && !b.mandatory) {
-                    return -1;
-                } else if (!a.mandatory && b.mandatory) {
-                    return 1;
-                }
-                return 0;
-            },
+        const {
+            enrollmentAttributes,
+            trackedEntityTypeAttributes,
+            attributes: destinationTrackedEntityAttributes,
+        } = getAttributes(program);
+        results.destinationTrackedEntityAttributes = sortOptionsByMandatory(
+            destinationTrackedEntityAttributes,
         );
+        results.destinationTrackedEntityTypeAttributes = sortOptionsByMandatory(
+            trackedEntityTypeAttributes,
+        );
+        results.destinationEnrollmentAttributes =
+            sortOptionsByMandatory(enrollmentAttributes);
         results.destinationColumns = [...attributes, ...elements];
         const trackedEntityInstanceIds = findTrackedEntityInstanceIds({
             mapping,
@@ -280,30 +274,20 @@ export const makeMetadata = ({
         });
         const { elements, attributes } = flattenProgram(dhis2Program);
 
-        const { enrollmentAttributes, trackedEntityAttributes } =
-            getAttributes(dhis2Program);
+        const {
+            enrollmentAttributes,
+            trackedEntityTypeAttributes,
+            attributes: sourceTrackedEntityAttributes,
+        } = getAttributes(dhis2Program);
         results.sourceStages = stages;
         results.sourceColumns = attributes.concat(elements);
         results.sourceOrgUnits = sourceOrgUnits;
-
-        results.sourceAttributes = trackedEntityAttributes.sort((a, b) => {
-            if (a.mandatory && !b.mandatory) {
-                return -1;
-            } else if (!a.mandatory && b.mandatory) {
-                return 1;
-            }
-            return 0;
-        });
-        results.sourceEnrollmentAttributes = enrollmentAttributes.sort(
-            (a, b) => {
-                if (a.mandatory && !b.mandatory) {
-                    return -1;
-                } else if (!a.mandatory && b.mandatory) {
-                    return 1;
-                }
-                return 0;
-            },
+        results.sourceTrackedEntityAttributes = sourceTrackedEntityAttributes;
+        results.sourceTrackedEntityTypeAttributes = sortOptionsByMandatory(
+            trackedEntityTypeAttributes,
         );
+        results.sourceEnrollmentAttributes =
+            sortOptionsByMandatory(enrollmentAttributes);
     } else if (mapping.dataSource === "go-data") {
         let units = [];
         let columns: Option[] = [];
@@ -347,42 +331,13 @@ export const makeMetadata = ({
         }
         columns = [...attributes, ...columns, ...investigationTemplate];
         results.sourceOrgUnits = units;
-        results.sourceColumns = columns.sort((a, b) => {
-            if (a.mandatory && !b.mandatory) {
-                return -1;
-            } else if (!a.mandatory && b.mandatory) {
-                return 1;
-            }
-            return 0;
-        });
-        results.sourceAttributes = attributes;
-        results.epidemiology = GO_DATA_EPIDEMIOLOGY_FIELDS.map((a) => {
-            if (a.optionSetValue && a.optionSet) {
-                return {
-                    ...a,
-                    availableOptions: referenceData
-                        .filter((b) => b.categoryId === a.optionSet)
-                        .map((c) => {
-                            const currentLabel = tokens[c.value];
-                            return {
-                                label: currentLabel,
-                                value: c.value,
-                            };
-                        }),
-                };
-            }
-            return a;
-        })
-            .sort((a, b) => {
-                if (a.mandatory && !b.mandatory) {
-                    return -1;
-                } else if (!a.mandatory && b.mandatory) {
-                    return 1;
-                }
-                return 0;
-            })
-            .map((a) => {
-                if (a.optionSet) {
+        results.sourceColumns = sortOptionsByMandatory(columns);
+        results.sourceTrackedEntityTypeAttributes = attributes;
+        results.sourceTrackedEntityAttributes = attributes;
+        results.sourceEnrollmentAttributes = attributes;
+        results.epidemiology = sortOptionsByMandatory(
+            GO_DATA_EPIDEMIOLOGY_FIELDS.map((a) => {
+                if (a.optionSetValue && a.optionSet) {
                     return {
                         ...a,
                         availableOptions: referenceData
@@ -397,108 +352,8 @@ export const makeMetadata = ({
                     };
                 }
                 return a;
-            });
-        results.case = uniqBy(
-            "value",
-            GO_DATA_PERSON_FIELDS.filter(
-                ({ entity }) => entity && entity.indexOf("CASE") !== -1,
-            ),
-        )
-            .sort((a, b) => {
-                if (a.mandatory && !b.mandatory) {
-                    return -1;
-                } else if (!a.mandatory && b.mandatory) {
-                    return 1;
-                }
-                return 0;
-            })
-            .map((a) => {
-                if (a.optionSet) {
-                    return {
-                        ...a,
-                        availableOptions: referenceData
-                            .filter((b) => b.categoryId === a.optionSet)
-                            .map((c) => {
-                                const currentLabel = tokens[c.value];
-                                return {
-                                    label: currentLabel,
-                                    value: c.value,
-                                };
-                            }),
-                    };
-                }
-                return a;
-            });
-        results.contact = uniqBy(
-            "value",
-            GO_DATA_PERSON_FIELDS.filter(
-                ({ entity }) => entity && entity.indexOf("CONTACT") !== -1,
-            ),
-        )
-            .sort((a, b) => {
-                if (a.mandatory && !b.mandatory) {
-                    return -1;
-                } else if (!a.mandatory && b.mandatory) {
-                    return 1;
-                }
-                return 0;
-            })
-            .map((a) => {
-                if (a.optionSet) {
-                    return {
-                        ...a,
-                        availableOptions: referenceData
-                            .filter((b) => b.categoryId === a.optionSet)
-                            .map((c) => {
-                                const currentLabel = tokens[c.value];
-                                return {
-                                    label: currentLabel,
-                                    value: c.value,
-                                };
-                            }),
-                    };
-                }
-                return a;
-            });
-        results.events = uniqBy("value", [
-            ...attributes.filter(
-                ({ entity }) => entity && entity.indexOf("EVENT") !== -1,
-            ),
-            ...GO_DATA_EVENTS_FIELDS,
-        ])
-            .sort((a, b) => {
-                if (a.mandatory && !b.mandatory) {
-                    return -1;
-                } else if (!a.mandatory && b.mandatory) {
-                    return 1;
-                }
-                return 0;
-            })
-            .map((a) => {
-                if (a.optionSet) {
-                    return {
-                        ...a,
-                        availableOptions: referenceData
-                            .filter((b) => b.categoryId === a.optionSet)
-                            .map((c) => {
-                                const currentLabel = tokens[c.value];
-                                return {
-                                    label: currentLabel,
-                                    value: c.value,
-                                };
-                            }),
-                    };
-                }
-                return a;
-            });
-        results.lab = GO_DATA_LAB_FIELDS.sort((a, b) => {
-            if (a.mandatory && !b.mandatory) {
-                return -1;
-            } else if (!a.mandatory && b.mandatory) {
-                return 1;
-            }
-            return 0;
-        }).map((a) => {
+            }),
+        ).map((a) => {
             if (a.optionSet) {
                 return {
                     ...a,
@@ -515,14 +370,98 @@ export const makeMetadata = ({
             }
             return a;
         });
-        results.relationship = GO_DATA_RELATIONSHIP_FIELDS.sort((a, b) => {
-            if (a.mandatory && !b.mandatory) {
-                return -1;
-            } else if (!a.mandatory && b.mandatory) {
-                return 1;
+        results.case = sortOptionsByMandatory(
+            uniqBy(
+                "value",
+                GO_DATA_PERSON_FIELDS.filter(
+                    ({ entity }) => entity && entity.indexOf("CASE") !== -1,
+                ),
+            ),
+        ).map((a) => {
+            if (a.optionSet) {
+                return {
+                    ...a,
+                    availableOptions: referenceData
+                        .filter((b) => b.categoryId === a.optionSet)
+                        .map((c) => {
+                            const currentLabel = tokens[c.value];
+                            return {
+                                label: currentLabel,
+                                value: c.value,
+                            };
+                        }),
+                };
             }
-            return 0;
-        }).map((a) => {
+            return a;
+        });
+        results.contact = sortOptionsByMandatory(
+            uniqBy(
+                "value",
+                GO_DATA_PERSON_FIELDS.filter(
+                    ({ entity }) => entity && entity.indexOf("CONTACT") !== -1,
+                ),
+            ),
+        ).map((a) => {
+            if (a.optionSet) {
+                return {
+                    ...a,
+                    availableOptions: referenceData
+                        .filter((b) => b.categoryId === a.optionSet)
+                        .map((c) => {
+                            const currentLabel = tokens[c.value];
+                            return {
+                                label: currentLabel,
+                                value: c.value,
+                            };
+                        }),
+                };
+            }
+            return a;
+        });
+        results.events = sortOptionsByMandatory(
+            uniqBy("value", [
+                ...attributes.filter(
+                    ({ entity }) => entity && entity.indexOf("EVENT") !== -1,
+                ),
+                ...GO_DATA_EVENTS_FIELDS,
+            ]),
+        ).map((a) => {
+            if (a.optionSet) {
+                return {
+                    ...a,
+                    availableOptions: referenceData
+                        .filter((b) => b.categoryId === a.optionSet)
+                        .map((c) => {
+                            const currentLabel = tokens[c.value];
+                            return {
+                                label: currentLabel,
+                                value: c.value,
+                            };
+                        }),
+                };
+            }
+            return a;
+        });
+        results.lab = sortOptionsByMandatory(GO_DATA_LAB_FIELDS).map((a) => {
+            if (a.optionSet) {
+                return {
+                    ...a,
+                    availableOptions: referenceData
+                        .filter((b) => b.categoryId === a.optionSet)
+                        .map((c) => {
+                            const currentLabel = tokens[c.value];
+                            return {
+                                label: currentLabel,
+                                value: c.value,
+                            };
+                        }),
+                };
+            }
+            return a;
+        });
+        results.relationship = sortOptionsByMandatory(
+            GO_DATA_RELATIONSHIP_FIELDS,
+        ).map((a) => {
             if (a.optionSet) {
                 return {
                     ...a,
@@ -541,6 +480,57 @@ export const makeMetadata = ({
         });
         results.questionnaire = investigationTemplate;
     } else if (mapping.dataSource === "fhir") {
+        let concepts: Option[] = [];
+        if (fhir.concepts && fhir.labelColumn && fhir.valueColumn) {
+            concepts = fhir.concepts.map((v: any) => {
+                const label = getOr("", fhir.labelColumn, v);
+                const value = getOr("", fhir.valueColumn, v);
+                return {
+                    label: `${label}(${value})`,
+                    value,
+                };
+            });
+        }
+        results.sourceOrgUnits = remoteOrganisations.map((v: any) => {
+            const label = v[mapping.remoteOrgUnitLabelField] || "";
+            const value = v[mapping.remoteOrgUnitValueField] || "";
+            return { label, value };
+        });
+        results.sourceColumns = [
+            { value: "encounter.period.start", label: "Encounter Start" },
+            { value: "encounter.period.end", label: "Encounter End" },
+            { value: "encounter.id", label: "Encounter ID" },
+            { value: "episodeOfCare.id", label: "EpisodeOfCare ID" },
+            {
+                value: "episodeOfCare.period.start",
+                label: "EpisodeOfCare Start",
+            },
+            { value: "episodeOfCare.period.end", label: "EpisodeOfCare End" },
+            { value: "patient.id", label: "Patient ID" },
+            { value: "patient.given", label: "Patient Given Name" },
+            { value: "patient.family", label: "Patient Family Name" },
+            { value: "patient.name", label: "Patient Full Name" },
+            { value: "patient.birthDate", label: "Patient Birth Date" },
+            { value: "patient.gender", label: "Patient Gender" },
+            {
+                value: "patient.deceasedDateTime",
+                label: "Patient Deceased Date",
+            },
+            { value: "patient.deceasedBoolean", label: "Patient Deceased" },
+            {
+                value: "patient.managingOrganization.reference",
+                label: "Patient Managing Organization",
+            },
+            { value: "patient.address.city", label: "Patient City" },
+            { value: "patient.address.country", label: "Patient Country" },
+            { value: "patient.address.state", label: "Patient State" },
+            {
+                value: "patient.address.postalCode",
+                label: "Patient Postal Code",
+            },
+            { value: "patient.address.district", label: "Patient District" },
+            ...uniqBy("value", concepts),
+        ];
     } else {
         let columns: Array<Option> = [];
         if (
@@ -625,7 +615,7 @@ export const makeMetadata = ({
 
         results.sourceOrgUnits = units;
         results.sourceColumns = columns;
-        results.sourceAttributes = columns;
+        results.sourceTrackedEntityTypeAttributes = columns;
     }
 
     if (mapping.isSource) {
@@ -634,8 +624,10 @@ export const makeMetadata = ({
             destinationColumns: results.sourceColumns,
             sourceOrgUnits: results.destinationOrgUnits,
             destinationOrgUnits: results.sourceOrgUnits,
-            sourceAttributes: results.destinationAttributes,
-            destinationAttributes: results.sourceAttributes,
+            sourceTrackedEntityTypeAttributes:
+                results.destinationTrackedEntityTypeAttributes,
+            destinationTrackedEntityTypeAttributes:
+                results.sourceTrackedEntityTypeAttributes,
             sourceStages: results.destinationStages,
             destinationStages: results.sourceStages,
             uniqueAttributeValues: results.uniqueAttributeValues,
@@ -654,6 +646,10 @@ export const makeMetadata = ({
             sourceCategories: results.destinationCategories,
             sourceEnrollmentAttributes: results.destinationEnrollmentAttributes,
             destinationEnrollmentAttributes: results.sourceEnrollmentAttributes,
+            destinationTrackedEntityAttributes:
+                results.sourceTrackedEntityTypeAttributes,
+            sourceTrackedEntityAttributes:
+                results.destinationTrackedEntityTypeAttributes,
         };
     }
     return results;

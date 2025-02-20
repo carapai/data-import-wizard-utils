@@ -14,6 +14,7 @@ import {
     isEmpty,
     isEqual,
     isObject,
+    orderBy,
     transform,
 } from "lodash";
 import {
@@ -59,10 +60,10 @@ import {
     getProgramUniqAttributes,
 } from "./program";
 
-import { emptyProcessedData } from "./constants";
 import { fetchTrackedEntityInstances } from "./fetch-tracked-entities";
 import { flattenEntitiesByEvents } from "./flatten-dhis2";
 import { generateUid } from "./uid";
+import { emptyProcessedData } from "./constants";
 
 dayjs.extend(localeData);
 dayjs.extend(updateLocale);
@@ -804,10 +805,17 @@ export const groupGoData4Insert = async (
     updates: GoResponse,
     prev: Dictionary<string>,
     authentication: Partial<Authentication>,
-    setMessage: React.Dispatch<React.SetStateAction<string>>,
-    setInserted: React.Dispatch<React.SetStateAction<any[]>>,
-    setUpdates: React.Dispatch<React.SetStateAction<any[]>>,
-    setErrors: React.Dispatch<React.SetStateAction<any[]>>,
+    setMessage: (message: string) => void,
+    onFinish: (
+        feedback: Partial<{
+            errors: any[];
+            updates: any[];
+            inserts: any[];
+        }>,
+    ) => void,
+    // setInserted: React.Dispatch<React.SetStateAction<any[]>>,
+    // setUpdates: React.Dispatch<React.SetStateAction<any[]>>,
+    // setErrors: React.Dispatch<React.SetStateAction<any[]>>,
 ) => {
     const {
         params,
@@ -818,10 +826,9 @@ export const groupGoData4Insert = async (
         username,
         ...rest
     } = authentication;
-    // setMessage(() => "Getting auth token");
-    let response: GODataTokenGenerationResponse | undefined = undefined;
-    try {
-        response = await postRemote<GODataTokenGenerationResponse>(
+
+    const response: GODataTokenGenerationResponse | undefined =
+        await postRemote<GODataTokenGenerationResponse>(
             rest,
             "api/users/login",
             {
@@ -829,9 +836,7 @@ export const groupGoData4Insert = async (
                 password,
             },
         );
-    } catch (error) {
-        console.log(error);
-    }
+
     if (response) {
         const token = response.id;
         for (const p of inserts.person) {
@@ -855,7 +860,7 @@ export const groupGoData4Insert = async (
             }
 
             if (epidemiology) {
-                setMessage(() => `Creating person with id ${p.visualId}`);
+                setMessage(`Creating person with id ${p.visualId}`);
                 try {
                     const response = await postRemote<any>(
                         {
@@ -874,15 +879,24 @@ export const groupGoData4Insert = async (
                             },
                         },
                     );
-                    setInserted((prev) => [...prev, response]);
+                    // setInserted((prev) => [...prev, response]);
+                    onFinish({ inserts: response });
                     const { id } = response;
                     prev = { ...prev, [p.visualId]: id };
                 } catch (error) {
                     if (error?.response?.data?.error) {
-                        setErrors((prev) => [
-                            ...prev,
-                            { ...error?.response?.data?.error, id: p.visualId },
-                        ]);
+                        // setErrors((prev) => [
+                        //     ...prev,
+                        //     { ...error?.response?.data?.error, id: p.visualId },
+                        // ]);
+                        onFinish({
+                            errors: [
+                                {
+                                    ...error?.response?.data?.error,
+                                    id: p.visualId,
+                                },
+                            ],
+                        });
                     }
                 }
             }
@@ -927,7 +941,7 @@ export const groupGoData4Insert = async (
                     ]),
                 );
             }
-            setMessage(() => `Updating person with id ${p.visualId}`);
+            setMessage(`Updating person with id ${p.visualId}`);
             try {
                 const response3 = await putRemote<any>(
                     {
@@ -942,13 +956,22 @@ export const groupGoData4Insert = async (
                         },
                     },
                 );
-                setUpdates((prev) => [...prev, response3]);
+                // setUpdates((prev) => [...prev, response3]);
+                onFinish({ updates: response3 });
             } catch (error) {
                 if (error?.response?.data?.error) {
-                    setErrors((prev) => [
-                        ...prev,
-                        { ...error?.response?.data?.error, id: p.visualId },
-                    ]);
+                    // setErrors((prev) => [
+                    //     ...prev,
+                    //     { ...error?.response?.data?.error, id: p.visualId },
+                    // ]);
+                    onFinish({
+                        errors: [
+                            {
+                                ...error?.response?.data?.error,
+                                id: p.visualId,
+                            },
+                        ],
+                    });
                 }
             }
         }
@@ -957,7 +980,7 @@ export const groupGoData4Insert = async (
             const id = prev[l.visualId];
             if (id) {
                 setMessage(
-                    () => `Creating lab result for peron with id ${l.visualId}`,
+                    `Creating lab result for peron with id ${l.visualId}`,
                 );
                 try {
                     const response2 = await postRemote(
@@ -971,13 +994,22 @@ export const groupGoData4Insert = async (
                             },
                         },
                     );
-                    setInserted((prev) => [...prev, response2]);
+                    // setInserted((prev) => [...prev, response2]);
+                    onFinish({ inserts: [response2] });
                 } catch (error) {
                     if (error?.response?.data?.error) {
-                        setErrors((prev) => [
-                            ...prev,
-                            { ...error?.response?.data?.error, id: l.visualId },
-                        ]);
+                        // setErrors((prev) => [
+                        //     ...prev,
+                        //     { ...error?.response?.data?.error, id: l.visualId },
+                        // ]);
+                        onFinish({
+                            errors: [
+                                {
+                                    ...error?.response?.data?.error,
+                                    id: l.visualId,
+                                },
+                            ],
+                        });
                     }
                 }
             }
@@ -993,8 +1025,7 @@ export const groupGoData4Insert = async (
                 ]);
                 if (id) {
                     setMessage(
-                        () =>
-                            `Updating questionnaire  for person with id ${q.visualId}`,
+                        `Updating questionnaire  for person with id ${q.visualId}`,
                     );
                     try {
                         const response2 = await putRemote(
@@ -1008,16 +1039,28 @@ export const groupGoData4Insert = async (
                                 },
                             },
                         );
-                        setUpdates((prev) => [...prev, response2]);
+                        // setUpdates((prev) => [...prev, response2]);
+
+                        onFinish({
+                            updates: [response2],
+                        });
                     } catch (error) {
                         if (error?.response?.data?.error) {
-                            setErrors((prev) => [
-                                ...prev,
-                                {
-                                    ...error?.response?.data?.error,
-                                    id: q.visualId,
-                                },
-                            ]);
+                            // setErrors((prev) => [
+                            //     ...prev,
+                            //     {
+                            //         ...error?.response?.data?.error,
+                            //         id: q.visualId,
+                            //     },
+                            // ]);
+                            onFinish({
+                                errors: [
+                                    {
+                                        ...error?.response?.data?.error,
+                                        id: q.visualId,
+                                    },
+                                ],
+                            });
                         }
                     }
                 }
@@ -1034,8 +1077,7 @@ export const groupGoData4Insert = async (
                 ]);
                 if (id) {
                     setMessage(
-                        () =>
-                            `Updating questionnaire  for person with id ${q.visualId}`,
+                        `Updating questionnaire  for person with id ${q.visualId}`,
                     );
                     try {
                         const response2 = await putRemote(
@@ -1049,16 +1091,28 @@ export const groupGoData4Insert = async (
                                 },
                             },
                         );
-                        setUpdates((prev) => [...prev, response2]);
+                        // setUpdates((prev) => [...prev, response2]);
+                        onFinish({
+                            updates: [response2],
+                        });
                     } catch (error) {
                         if (error?.response?.data?.error) {
-                            setErrors((prev) => [
-                                ...prev,
-                                {
-                                    ...error?.response?.data?.error,
-                                    id: q.visualId,
-                                },
-                            ]);
+                            // setErrors((prev) => [
+                            //     ...prev,
+                            //     {
+                            //         ...error?.response?.data?.error,
+                            //         id: q.visualId,
+                            //     },
+                            // ]);
+
+                            onFinish({
+                                errors: [
+                                    {
+                                        ...error?.response?.data?.error,
+                                        id: q.visualId,
+                                    },
+                                ],
+                            });
                         }
                     }
                 }
@@ -1068,9 +1122,7 @@ export const groupGoData4Insert = async (
         for (const l of updates.lab) {
             const id = prev[l.visualId];
             if (id) {
-                setMessage(
-                    () => `Updating lab result for peron with id ${l.id}`,
-                );
+                setMessage(`Updating lab result for peron with id ${l.id}`);
                 try {
                     const response2 = await putRemote(
                         { ...rest },
@@ -1083,13 +1135,25 @@ export const groupGoData4Insert = async (
                             },
                         },
                     );
-                    setUpdates((prev) => [...prev, response2]);
+                    // setUpdates((prev) => [...prev, response2]);
+                    onFinish({
+                        updates: [response2],
+                    });
                 } catch (error) {
                     if (error?.response?.data?.error) {
-                        setErrors((prev) => [
-                            ...prev,
-                            { ...error?.response?.data?.error, id: l.visualId },
-                        ]);
+                        // setErrors((prev) => [
+                        //     ...prev,
+                        //     { ...error?.response?.data?.error, id: l.visualId },
+                        // ]);
+
+                        onFinish({
+                            errors: [
+                                {
+                                    ...error?.response?.data?.error,
+                                    id: l.visualId,
+                                },
+                            ],
+                        });
                     }
                 }
             }
@@ -1455,7 +1519,7 @@ export const validateValue = ({
     uniqueKey,
 }: {
     option: Option;
-    mapping: Partial<Option>;
+    mapping: Partial<RealMapping>;
     data: any;
     flippedOptions: Dictionary<string>;
     field: string;
@@ -1466,164 +1530,182 @@ export const validateValue = ({
     success: boolean;
     value: any;
 }> => {
-    if (mapping.source) {
-        const validation = ValueType[option.valueType];
-        let value = getOr("", mapping.source, data);
-        if (mapping.isSpecific) {
-            value = mapping.source;
-        }
-        if (mapping.isCustom) {
-            if (mapping.customType === "join columns") {
-                value = mapping.source
-                    .split(",")
-                    .map((col) => getOr("", col, data))
-                    .join(" ");
-            } else if (mapping.customType === "extract year") {
-                value = dayjs(value, "YYYY-MM-DD").format("YYYY");
-            }
-        }
-        if (option.optionSetValue) {
-            value = flippedOptions[value] || value;
-            if (
-                option.availableOptions.findIndex(
-                    (v: Option) =>
-                        v.code === value || v.id === value || v.value === value,
-                ) !== -1
-            ) {
-                return { success: true, value, errors: [], conflicts: [] };
-            } else {
-                if (mapping.mandatory) {
-                    return {
-                        success: false,
-                        errors: [
-                            {
-                                id: generateUid(),
-                                value,
-                                field,
-                                uniqueKey,
-                                valueType: option.valueType,
-                                message: `Expected values (${option.availableOptions
-                                    .map(({ value }) => value)
-                                    .join(",")})`,
-                            },
-                        ],
-                        conflicts: [],
-                    };
-                }
-                if (value) {
-                    return {
-                        success: false,
-                        conflicts: [
-                            {
-                                id: generateUid(),
-                                value,
-                                field,
-                                uniqueKey,
-                                valueType: option.valueType,
-                                message: `Expected values (${option.availableOptions
-                                    .map(({ value }) => value)
-                                    .join(",")})`,
-                            },
-                        ],
-                        errors: [],
-                    };
-                }
-            }
-        } else if (validation) {
-            try {
-                validation.parse(value);
-                if (option.valueType === "DATE") {
-                    return {
-                        success: true,
-                        value: String(value).slice(0, 10),
-                    };
-                }
-
-                if (option.valueType === "DATETIME") {
-                    return {
-                        success: true,
-                        value: String(value).replace("Z", ""),
-                        errors: [],
-                        conflicts: [],
-                    };
-                }
-                if (
-                    option.valueType === "BOOLEAN" &&
-                    ["true", "1", "yes", "ok"].includes(
-                        String(value).toLowerCase().trim(),
-                    )
-                ) {
-                    return {
-                        success: true,
-                        value: "true",
-                        errors: [],
-                        conflicts: [],
-                    };
-                }
-
-                if (
-                    option.valueType === "BOOLEAN" &&
-                    ["false", "0", "no"].includes(
-                        String(value).toLowerCase().trim(),
-                    )
-                ) {
-                    return {
-                        success: true,
-                        value: "false",
-                        errors: [],
-                        conflicts: [],
-                    };
-                }
-
-                if (
-                    option.valueType === "TRUE_ONLY" &&
-                    ["true", "1", "yes", "ok"].includes(
-                        String(value).toLowerCase().trim(),
-                    )
-                ) {
-                    return {
-                        success: true,
-                        value: "true",
-                        errors: [],
-                        conflicts: [],
-                    };
-                }
-                return { success: true, value, errors: [], conflicts: [] };
-            } catch (error) {
-                const { issues } = error;
-                if (mapping.mandatory) {
-                    return {
-                        success: false,
-                        errors: issues.map((i: any) => ({
-                            ...i,
-                            value,
-                            field,
-                            uniqueKey,
-                            valueType: mapping.valueType,
-                            id: generateUid(),
-                        })),
-                        conflicts: [],
-                    };
-                }
-                if (value) {
-                    return {
-                        success: false,
-                        conflicts: issues.map((i: any) => ({
-                            ...i,
-                            value,
-                            field,
-                            uniqueKey,
-                            valueType: mapping.valueType,
-                            id: generateUid(),
-                        })),
-                        errors: [],
-                    };
-                }
-            }
-        } else if (value) {
-            return { success: true, value, errors: [], conflicts: [] };
+    const validation = ValueType[option.valueType];
+    let value = getOr("", mapping.source, data);
+    if (mapping.isSpecific) {
+        value = mapping.source;
+    }
+    if (mapping.isCustom) {
+        if (mapping.customType === "join columns") {
+            value = mapping.source
+                .split(",")
+                .map((col) => getOr("", col, data))
+                .join(" ");
+        } else if (mapping.customType === "extract year") {
+            value = dayjs(value, "YYYY-MM-DD").format("YYYY");
         }
     }
+    if (option.optionSetValue) {
+        value = flippedOptions[value] || value;
+        if (
+            option.availableOptions.findIndex(
+                (v: Option) =>
+                    v.code === value || v.id === value || v.value === value,
+            ) !== -1
+        ) {
+            return { success: true, value, errors: [], conflicts: [] };
+        } else {
+            if (mapping.mandatory) {
+                return {
+                    success: false,
+                    errors: [
+                        {
+                            id: generateUid(),
+                            value,
+                            field,
+                            uniqueKey,
+                            valueType: option.valueType,
+                            attribute: option.value,
+                            message: `Expected values (${option.availableOptions
+                                .map(({ value }) => value)
+                                .join(",")})`,
+                        },
+                    ],
+                    conflicts: [],
+                };
+            }
+            if (value) {
+                return {
+                    success: false,
+                    conflicts: [
+                        {
+                            id: generateUid(),
+                            value,
+                            field,
+                            uniqueKey,
+                            valueType: option.valueType,
+                            attribute: option.value,
+                            message: `Expected values (${option.availableOptions
+                                .map(({ value }) => value)
+                                .join(",")})`,
+                        },
+                    ],
+                    errors: [],
+                };
+            }
+        }
+    }
+    if (validation && value) {
+        try {
+            validation.parse(value);
+            if (option.valueType === "DATE") {
+                return {
+                    success: true,
+                    value: String(value).slice(0, 10),
+                };
+            }
+
+            if (option.valueType === "DATETIME") {
+                return {
+                    success: true,
+                    value: String(value).replace("Z", ""),
+                    errors: [],
+                    conflicts: [],
+                };
+            }
+            if (
+                option.valueType === "BOOLEAN" &&
+                ["true", "1", "yes", "ok"].includes(
+                    String(value).toLowerCase().trim(),
+                )
+            ) {
+                return {
+                    success: true,
+                    value: "true",
+                    errors: [],
+                    conflicts: [],
+                };
+            }
+
+            if (
+                option.valueType === "BOOLEAN" &&
+                ["false", "0", "no"].includes(
+                    String(value).toLowerCase().trim(),
+                )
+            ) {
+                return {
+                    success: true,
+                    value: "false",
+                    errors: [],
+                    conflicts: [],
+                };
+            }
+
+            if (
+                option.valueType === "TRUE_ONLY" &&
+                ["true", "1", "yes", "ok"].includes(
+                    String(value).toLowerCase().trim(),
+                )
+            ) {
+                return {
+                    success: true,
+                    value: "true",
+                    errors: [],
+                    conflicts: [],
+                };
+            }
+            return { success: true, value, errors: [], conflicts: [] };
+        } catch (error) {
+            const { issues } = error;
+            if (mapping.mandatory) {
+                return {
+                    success: false,
+                    errors: issues.map((i: any) => ({
+                        ...i,
+                        value,
+                        field,
+                        uniqueKey,
+                        valueType: mapping.valueType,
+                        id: generateUid(),
+                    })),
+                    conflicts: [],
+                };
+            }
+            if (value) {
+                return {
+                    success: false,
+                    conflicts: issues.map((i: any) => ({
+                        ...i,
+                        value,
+                        field,
+                        uniqueKey,
+                        valueType: mapping.valueType,
+                        id: generateUid(),
+                    })),
+                    errors: [],
+                };
+            }
+        }
+    }
+    if (mapping.mandatory) {
+        return {
+            success: false,
+            errors: [
+                {
+                    id: generateUid(),
+                    value,
+                    field,
+                    uniqueKey,
+                    valueType: option.valueType,
+                    attribute: field,
+                    message:
+                        "Attribute is mandatory but not no value was provided",
+                },
+            ],
+            conflicts: [],
+        };
+    }
+
     return { success: false, conflicts: [], errors: [] };
 };
 
@@ -1633,20 +1715,27 @@ export const processAttributes = ({
     flippedOptions,
     data,
     uniqueKey,
+    createEnrollments,
+    createEntities,
+    updateEnrollments,
+    updateEntities,
 }: {
     attributeMapping: Mapping;
-    attributes: Dictionary<Option>;
+    attributes: Option[];
     flippedOptions: Dictionary<string>;
     data: any;
     uniqueKey: string;
+    updateEnrollments: boolean;
+    createEnrollments: boolean;
+    createEntities: boolean;
+    updateEntities: boolean;
 }) => {
     let source: { [key: string]: any } = {};
     let conflicts: any[] = [];
     let errors: any[] = [];
-
-    Object.entries(attributeMapping).forEach(([attribute, aMapping]) => {
-        const currentAttribute = attributes[attribute];
-        if (aMapping.source && currentAttribute) {
+    attributes.forEach((currentAttribute) => {
+        const aMapping = attributeMapping[currentAttribute.value];
+        if (aMapping && aMapping.source) {
             const {
                 success,
                 conflicts: cs,
@@ -1655,18 +1744,38 @@ export const processAttributes = ({
             } = validateValue({
                 data,
                 option: currentAttribute,
-                field: attribute,
+                field: currentAttribute.value,
                 mapping: aMapping,
                 flippedOptions,
                 uniqueKey,
             });
-
             if (success) {
-                source = { ...source, [attribute]: value };
+                source = {
+                    ...source,
+                    [currentAttribute.value]: value,
+                };
             } else {
                 conflicts = conflicts.concat(cs);
                 errors = errors.concat(es);
             }
+        } else if (
+            currentAttribute.mandatory &&
+            (createEnrollments ||
+                createEntities ||
+                updateEnrollments ||
+                updateEntities)
+        ) {
+            errors = errors.concat([
+                {
+                    id: generateUid(),
+                    value: "",
+                    field: currentAttribute.value,
+                    uniqueKey,
+                    valueType: currentAttribute.valueType,
+                    attribute: currentAttribute.value,
+                    message: "Attribute is mandatory but not mapped",
+                },
+            ]);
         }
     });
 
@@ -1903,7 +2012,7 @@ export const processInstances = async (
         organisationUnitMapping: Mapping;
         programStageMapping: StageMapping;
         enrollmentMapping: Mapping;
-        setMessage: React.Dispatch<React.SetStateAction<string>>;
+        setMessage: (message: string) => void;
     },
     callback: (processedData: Processed) => void,
 ) => {
@@ -1941,7 +2050,8 @@ export const processInstances = async (
             },
         );
     } else {
-        const { trackedEntityInstanceColumn } = mapping.trackedEntityMapping;
+        const { trackedEntityInstanceColumn } =
+            mapping.trackedEntityMapping ?? { trackedEntityInstanceColumn: "" };
         if (trackedEntityInstanceColumn) {
             trackedInstanceIds = trackedEntityInstances.flatMap(
                 ({ trackedEntityInstance }) => {
@@ -1956,9 +2066,7 @@ export const processInstances = async (
             );
         }
         if (currentData.length > 0) {
-            setMessage(
-                () => "Fetching previous data for tracked entity instances",
-            );
+            setMessage("Fetching previous data for tracked entity instances");
             const { trackedEntityInstances } =
                 await fetchTrackedEntityInstances({
                     api,
@@ -1982,9 +2090,9 @@ export const processInstances = async (
         currentProgram: mapping.program?.program,
         programStageMapping,
         trackedEntityIdIdentifiesInstance: trackedInstanceIds.length > 0,
+        eventStageMapping: mapping.eventStageMapping,
     });
-
-    setMessage(() => `Converting data to destination DHIS2`);
+    setMessage(`Converting data to destination DHIS2`);
     const convertedData = convertToDHIS2({
         previousData: previous,
         data: currentData,
@@ -2167,11 +2275,11 @@ export function cleanString(
 export const flipMapping = (mapping: Mapping, isOrgUnit: boolean = false) => {
     const flipped: Record<string, string> = {};
     Object.entries(mapping).forEach(([unit, value]) => {
-        if (isOrgUnit) {
+        if (isOrgUnit && value && value.source) {
             value.source.split(",").forEach((u) => {
                 flipped[cleanString(u).toLowerCase()] = unit;
             });
-        } else {
+        } else if (value && value.source) {
             value.source.split(",").forEach((u) => {
                 flipped[u] = unit;
             });
@@ -2179,3 +2287,6 @@ export const flipMapping = (mapping: Mapping, isOrgUnit: boolean = false) => {
     });
     return flipped;
 };
+
+export const sortOptionsByMandatory = (options: Option[]) =>
+    orderBy(options, ["mandatory", "unique", "label"], ["desc", "desc", "asc"]);

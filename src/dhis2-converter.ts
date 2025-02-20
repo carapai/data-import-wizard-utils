@@ -4,7 +4,6 @@ import { processEvents } from "./events-converter";
 import {
     DHIS2ProcessedData,
     Enrollment,
-    Event,
     IEnrollment,
     IMapping,
     IProgram,
@@ -57,29 +56,19 @@ export const convertToDHIS2 = ({
     program: Partial<IProgram>;
     enrollmentMapping: Mapping;
 }): DHIS2ProcessedData => {
-    const { enrollmentAttributes, trackedEntityAttributes } =
-        getAttributes(program);
-    const aAttributes = fromPairs(
-        trackedEntityAttributes.map((a) => [a.value, a]),
-    );
-    const eAttributes = fromPairs(
-        enrollmentAttributes.map((a) => [a.value, a]),
-    );
+    const { attributes } = getAttributes(program);
+    const attributeValues = attributes.map((a) => a.value);
     const allElements = fromPairs(
         getDataElements(program).map((e) => [e.value, e]),
     );
     const uniqColumns = getProgramUniqAttributes(attributeMapping);
-    const uniqEnrollmentColumns = getProgramUniqAttributes(enrollmentMapping);
-
     const trackedEntityGeometryType =
         program.trackedEntityType?.featureType ?? "";
 
     const enrollmentGeometryType = program.featureType ?? "";
     const {
-        onlyEnrollOnce,
         selectEnrollmentDatesInFuture,
         selectIncidentDatesInFuture,
-        programTrackedEntityAttributes,
         programStages,
         registration,
     } = program;
@@ -120,11 +109,10 @@ export const convertToDHIS2 = ({
     let groupedData: Record<string, any[]> = {};
     if (trackedEntityInstanceColumn) {
         groupedData = groupBy(trackedEntityInstanceColumn, data);
-    } else if (uniqColumns.length > 0 || uniqEnrollmentColumns.length > 0) {
+    } else if (uniqColumns.length > 0) {
         groupedData = groupBy(
             (item: any) =>
                 uniqColumns
-                    .concat(uniqEnrollmentColumns)
                     .map((column) => getOr("", column.source, item))
                     .sort()
                     .join(""),
@@ -139,460 +127,391 @@ export const convertToDHIS2 = ({
         );
     }
 
-    const processed = Object.entries(groupedData).flatMap(
-        ([uniqueKey, current]) => {
-            let results: {
-                enrollments: Array<Partial<Enrollment>>;
-                enrollmentUpdates: Array<Partial<Enrollment>>;
-                trackedEntity: Partial<TrackedEntityInstance>;
-                events: Array<Partial<Event>>;
-                eventUpdates: Array<Partial<Event>>;
-                trackedEntityUpdate: Partial<TrackedEntityInstance>;
-                conflicts: any[];
-                errors: any[];
-            } = {
-                enrollments: [],
-                trackedEntity: {},
-                events: [],
-                eventUpdates: [],
-                trackedEntityUpdate: {},
-                enrollmentUpdates: [],
-                errors: [],
-                conflicts: [],
-            };
+    let results: DHIS2ProcessedData = {
+        enrollments: [],
+        events: [],
+        eventUpdates: [],
+        trackedEntityInstanceUpdates: [],
+        enrollmentUpdates: [],
+        errors: [],
+        conflicts: [],
+        trackedEntityInstances: [],
+    };
 
-            let currentUnit = "";
+    Object.entries(groupedData).forEach(([uniqueKey, current]) => {
+        let currentUnit = "";
+        if (orgUnitColumn) {
+            currentUnit = orgUnitColumn
+                .split(",")
+                .map((u) => getOr("", u, current[0]).trim())
+                .join("/");
+        }
 
-            if (orgUnitColumn) {
-                currentUnit = orgUnitColumn
-                    .split(",")
-                    .map((u) => getOr("", u, current[0]).trim())
-                    .join("/");
-            }
+        let previousOrgUnit = getOr("", uniqueKey, previousData.orgUnits);
 
-            let previousOrgUnit = getOr(
-                getOr("", uniqueKey, previousData.orgUnits),
+        if (!isEmpty(flippedUnits) && currentUnit) {
+            previousOrgUnit = getOr(
+                previousOrgUnit,
                 cleanString(currentUnit).toLowerCase(),
                 flippedUnits,
             );
+        }
 
-            if (program.registration) {
-                let previousTrackedEntity = getOr(
-                    "",
-                    uniqueKey,
-                    previousData.trackedEntities,
-                );
-                let previousEnrollments = getOr(
-                    [],
-                    uniqueKey,
-                    previousData.enrollments,
-                );
-                const previousAttributes = getOr(
-                    [],
-                    uniqueKey,
-                    previousData.attributes,
-                );
-                const trackedEntityGeometry = getGeometry({
-                    data: current[0],
-                    geometryColumn: instanceGeometryColumn,
-                    featureType: trackedEntityGeometryType,
-                });
-                const enrollmentGeometry = getGeometry({
-                    data: current[0],
-                    geometryColumn: enrollmentGeometryColumn,
-                    featureType: enrollmentGeometryType,
-                });
+        if (program.registration) {
+            let previousTrackedEntity = getOr(
+                "",
+                uniqueKey,
+                previousData.trackedEntities,
+            );
+            let previousEnrollments = getOr(
+                [],
+                uniqueKey,
+                previousData.enrollments,
+            );
+            const previousAttributes = getOr(
+                [],
+                uniqueKey,
+                previousData.attributes,
+            );
+            const trackedEntityGeometry = getGeometry({
+                data: current[0],
+                geometryColumn: instanceGeometryColumn,
+                featureType: trackedEntityGeometryType,
+            });
+            const enrollmentGeometry = getGeometry({
+                data: current[0],
+                geometryColumn: enrollmentGeometryColumn,
+                featureType: enrollmentGeometryType,
+            });
 
-                let { source, errors, conflicts } = processAttributes({
-                    attributeMapping,
-                    attributes: aAttributes,
-                    flippedOptions,
-                    data: current[0],
-                    uniqueKey,
-                });
-                results = {
-                    ...results,
-                    errors: results.errors.concat(errors),
-                    conflicts: results.conflicts.concat(conflicts),
-                };
+            const { source, errors, conflicts } = processAttributes({
+                attributeMapping,
+                attributes,
+                flippedOptions,
+                data: current[0],
+                uniqueKey,
+                updateEnrollments,
+                updateEntities,
+                createEnrollments,
+                createEntities,
+            });
+            results = {
+                ...results,
+                errors: results.errors.concat(errors),
+                conflicts: results.conflicts.concat(conflicts),
+            };
+            const destination = fromPairs(
+                previousAttributes.map(({ attribute, value }) => [
+                    attribute,
+                    value,
+                ]),
+            );
 
-                const destination = fromPairs(
-                    previousAttributes.map(({ attribute, value }) => [
-                        attribute,
-                        value,
-                    ]),
-                );
+            const differences = findChanges({
+                destination,
+                source,
+            });
 
-                const differences = findChanges({
-                    destination,
-                    source,
-                });
+            const processedTrackedEntityAttributes = Object.entries({
+                ...destination,
+                ...differences,
+            }).flatMap(([attribute, value]) => {
+                if (new Set(attributeValues).has(attribute))
+                    return { attribute, value };
+                return [];
+            });
 
-                if (
-                    previousAttributes.length > 0 &&
-                    updateEntities &&
-                    results.errors.length === 0
-                ) {
-                    if (!isEmpty(differences)) {
-                        const attributes = Object.entries({
-                            ...destination,
-                            ...differences,
-                        }).map(([attribute, value]) => ({ attribute, value }));
+            let currentTrackedEntity: Partial<TrackedEntityInstance> = {};
 
-                        results = {
-                            ...results,
-                            trackedEntityUpdate: {
-                                trackedEntityInstance: previousTrackedEntity,
-                                attributes,
-                                trackedEntityType:
-                                    mapping.program.trackedEntityType,
-                                orgUnit: previousOrgUnit,
-                            },
-                        };
-
-                        if (!isEmpty(trackedEntityGeometry)) {
-                            results = {
-                                ...results,
-                                trackedEntityUpdate: {
-                                    ...results.trackedEntityUpdate,
-                                    geometry: trackedEntityGeometry,
-                                },
-                            };
-                        }
-                    }
-                } else if (
-                    previousAttributes.length === 0 &&
-                    createEntities &&
-                    results.errors.length === 0
-                ) {
-                    previousTrackedEntity = getOr(
-                        generateUid(),
-                        trackedEntityInstanceColumn,
-                        current[0],
-                    );
-                    if (previousOrgUnit) {
-                        results = {
-                            ...results,
-                            trackedEntity: {
-                                trackedEntityInstance: previousTrackedEntity,
-                                attributes: Object.entries({
-                                    ...differences,
-                                    ...source,
-                                }).map(([attribute, value]) => ({
-                                    attribute,
-                                    value,
-                                })),
-                                trackedEntityType:
-                                    mapping.program.trackedEntityType,
-                                orgUnit: previousOrgUnit,
-                            },
-                        };
-                        if (!isEmpty(trackedEntityGeometry)) {
-                            results = {
-                                ...results,
-                                trackedEntity: {
-                                    ...results.trackedEntity,
-                                    geometry: trackedEntityGeometry,
-                                },
-                            };
-                        }
-                    } else {
-                        results = {
-                            ...results,
-                            errors: results.errors.concat({
-                                value: `Missing equivalent mapping for organisation unit ${currentUnit}`,
-                                attribute: `OrgUnit for ${uniqueKey}`,
-                                id: generateUid(),
-                            }),
+            if (
+                previousAttributes.length > 0 &&
+                updateEntities &&
+                results.errors.length === 0
+            ) {
+                if (!isEmpty(differences)) {
+                    currentTrackedEntity = {
+                        trackedEntityInstance: previousTrackedEntity,
+                        attributes: processedTrackedEntityAttributes,
+                        trackedEntityType: mapping.program.trackedEntityType,
+                        orgUnit: previousOrgUnit,
+                    };
+                    if (!isEmpty(trackedEntityGeometry)) {
+                        currentTrackedEntity = {
+                            ...currentTrackedEntity,
+                            geometry: trackedEntityGeometry,
                         };
                     }
                 }
+            } else if (
+                previousAttributes.length === 0 &&
+                createEntities &&
+                results.errors.length === 0
+            ) {
+                previousTrackedEntity = getOr(
+                    generateUid(),
+                    trackedEntityInstanceColumn,
+                    current[0],
+                );
+                if (previousOrgUnit) {
+                    currentTrackedEntity = {
+                        trackedEntityInstance: previousTrackedEntity,
+                        attributes: processedTrackedEntityAttributes,
+                        trackedEntityType: mapping.program.trackedEntityType,
+                        orgUnit: previousOrgUnit,
+                    };
+                    if (!isEmpty(trackedEntityGeometry)) {
+                        currentTrackedEntity = {
+                            ...currentTrackedEntity,
+                            geometry: trackedEntityGeometry,
+                        };
+                    }
+                } else {
+                    results = {
+                        ...results,
+                        errors: results.errors.concat({
+                            message: `Missing equivalent mapping for organisation unit ${currentUnit}`,
+                            attribute: `orgUnit`,
+                            field: "orgUnit",
+                            id: generateUid(),
+                            value: "",
+                            valueType: "TEXT",
+                            uniqueKey,
+                        }),
+                    };
+                }
+            }
 
-                if (enrollmentDateColumn && results.errors.length === 0) {
-                    const groupedByEnrollmentDate = groupBy(
-                        enrollmentDateColumn,
-                        current,
-                    );
+            if (
+                !isEmpty(previousAttributes) &&
+                updateEntities &&
+                !isEmpty(currentTrackedEntity)
+            ) {
+                results = {
+                    ...results,
+                    trackedEntityInstanceUpdates:
+                        results.trackedEntityInstanceUpdates.concat(
+                            currentTrackedEntity,
+                        ),
+                };
+            }
 
-                    for (const [eDate, enrollmentData] of Object.entries(
-                        groupedByEnrollmentDate,
-                    )) {
-                        let previousEnrollment: IEnrollment =
-                            previousEnrollments.find((a) =>
-                                dayjs(a.enrollmentDate).isSame(dayjs(eDate)),
-                            );
-                        if (
-                            previousOrgUnit &&
-                            createEnrollments &&
-                            isEmpty(previousEnrollment)
-                        ) {
-                            const enrollmentDate = dayjs(eDate);
-                            const incidentDate = dayjs(
-                                getOr(
-                                    "",
-                                    incidentDateColumn,
-                                    enrollmentData[0],
+            if (enrollmentDateColumn && results.errors.length === 0) {
+                const groupedByEnrollmentDate = groupBy(
+                    enrollmentDateColumn,
+                    current,
+                );
+                for (const [eDate, enrollmentData] of Object.entries(
+                    groupedByEnrollmentDate,
+                )) {
+                    let previousEnrollment: IEnrollment | undefined = undefined;
+                    if (
+                        mapping.program.onlyEnrollOnce &&
+                        previousEnrollments.length > 0
+                    ) {
+                        previousEnrollment = previousEnrollments[0];
+                    } else {
+                        previousEnrollment = previousEnrollments.find((a) =>
+                            dayjs(a.enrollmentDate).isSame(dayjs(eDate)),
+                        );
+                    }
+
+                    if (
+                        previousEnrollment &&
+                        !dayjs(previousEnrollment.enrollmentDate).isSame(
+                            dayjs(eDate),
+                        ) &&
+                        updateEnrollments
+                    ) {
+                        const { attributes, ...rest } = previousEnrollment;
+                        const currentEnrollment: Partial<Enrollment> = {
+                            ...rest,
+                            enrollmentDate: eDate,
+                        };
+                        results = {
+                            ...results,
+                            enrollmentUpdates:
+                                results.enrollmentUpdates.concat(
+                                    currentEnrollment,
                                 ),
-                            );
+                        };
+                    } else if (
+                        previousOrgUnit &&
+                        createEnrollments &&
+                        isEmpty(previousEnrollment)
+                    ) {
+                        const enrollmentDate = dayjs(eDate);
+                        const incidentDate = dayjs(
+                            getOr("", incidentDateColumn, enrollmentData[0]),
+                        );
+                        if (
+                            enrollmentDate.isValid() &&
+                            incidentDate.isValid()
+                        ) {
+                            let dateAreValid = true;
                             if (
-                                enrollmentDate.isValid() &&
-                                incidentDate.isValid()
+                                !selectEnrollmentDatesInFuture &&
+                                enrollmentDate.isAfter(dayjs())
                             ) {
-                                let dateAreValid = true;
-                                if (
-                                    !selectEnrollmentDatesInFuture &&
-                                    enrollmentDate.isAfter(dayjs())
-                                ) {
-                                    dateAreValid = false;
+                                dateAreValid = false;
 
-                                    results = {
-                                        ...results,
-                                        errors: results.errors.concat({
-                                            value: `Date ${enrollmentDate.format(
-                                                "YYYY-MM-DD",
-                                            )} is in the future`,
-                                            attribute: `Enrollment date for ${uniqueKey}`,
-                                            id: generateUid(),
-                                        }),
-                                    };
-                                }
-
-                                if (
-                                    !selectIncidentDatesInFuture &&
-                                    incidentDate.isAfter(dayjs())
-                                ) {
-                                    dateAreValid = false;
-
-                                    results = {
-                                        ...results,
-                                        errors: results.errors.concat({
-                                            value: `Date ${incidentDate.format(
-                                                "YYYY-MM-DD",
-                                            )} is in the future`,
-                                            attribute: `Incident date for ${uniqueKey}`,
-                                            id: generateUid(),
-                                        }),
-                                    };
-                                }
-                                if (dateAreValid) {
-                                    const { source, errors, conflicts } =
-                                        processAttributes({
-                                            attributeMapping: enrollmentMapping,
-                                            attributes: eAttributes,
-                                            flippedOptions,
-                                            data: current[0],
-                                            uniqueKey,
-                                        });
-
-                                    results = {
-                                        ...results,
-                                        errors: results.errors.concat(errors),
-                                        conflicts:
-                                            results.conflicts.concat(conflicts),
-                                    };
-
-                                    if (errors.length === 0) {
-                                        const differences = findChanges({
-                                            destination: {},
-                                            source,
-                                        });
-
-                                        previousEnrollment = {
-                                            enrollment: generateUid(),
-                                            enrollmentDate:
-                                                enrollmentDate.format(
-                                                    "YYYY-MM-DD",
-                                                ),
-                                            attributes: {},
-                                        };
-                                        let currentEnrollment: Partial<Enrollment> =
-                                            {
-                                                program:
-                                                    mapping.program.program,
-                                                trackedEntityInstance:
-                                                    previousTrackedEntity,
-                                                orgUnit: previousOrgUnit,
-                                                enrollmentDate:
-                                                    enrollmentDate.format(
-                                                        "YYYY-MM-DD",
-                                                    ),
-                                                incidentDate:
-                                                    enrollmentDate.format(
-                                                        "YYYY-MM-DD",
-                                                    ),
-                                                enrollment:
-                                                    previousEnrollment.enrollment,
-
-                                                attributes: Object.entries({
-                                                    ...differences,
-                                                    ...source,
-                                                }).map(
-                                                    ([attribute, value]) => ({
-                                                        attribute,
-                                                        value,
-                                                    }),
-                                                ),
-                                            };
-                                        if (!isEmpty(enrollmentGeometry)) {
-                                            currentEnrollment = {
-                                                ...currentEnrollment,
-                                                geometry: enrollmentGeometry,
-                                            };
-                                        }
-                                        results = {
-                                            ...results,
-                                            enrollments:
-                                                results.enrollments.concat(
-                                                    currentEnrollment,
-                                                ),
-                                        };
-                                    }
-                                }
-                            } else {
                                 results = {
                                     ...results,
                                     errors: results.errors.concat({
-                                        value: "Missing",
-                                        attribute:
-                                            "enrollment date and/or incident date",
+                                        message: `Date ${enrollmentDate.format(
+                                            "YYYY-MM-DD",
+                                        )} is in the future`,
+                                        value: "",
+                                        attribute: `Enrollment date`,
+                                        field: `Enrollment date`,
                                         id: generateUid(),
+                                        valueType: "DATE",
                                     }),
                                 };
                             }
-                        } else if (
-                            previousOrgUnit &&
-                            updateEnrollments &&
-                            !isEmpty(previousEnrollment)
-                        ) {
-                            const { source, errors, conflicts } =
-                                processAttributes({
-                                    attributeMapping: enrollmentMapping,
-                                    attributes: eAttributes,
-                                    flippedOptions,
-                                    data: current[0],
-                                    uniqueKey,
-                                });
 
-                            const differences = findChanges({
-                                destination: previousEnrollment.attributes,
-                                source,
-                            });
+                            if (
+                                !selectIncidentDatesInFuture &&
+                                incidentDate.isAfter(dayjs())
+                            ) {
+                                dateAreValid = false;
 
-                            if (!isEmpty(differences)) {
-                                let currentEnrollment: Partial<Enrollment> = {
-                                    ...previousData,
-                                    attributes: Object.entries({
-                                        ...differences,
-                                        ...source,
-                                    }).map(([attribute, value]) => ({
-                                        attribute,
-                                        value,
-                                    })),
-                                };
                                 results = {
                                     ...results,
-                                    enrollmentUpdates:
-                                        results.enrollmentUpdates.concat(
+                                    errors: results.errors.concat({
+                                        message: `Date ${incidentDate.format(
+                                            "YYYY-MM-DD",
+                                        )} is in the future`,
+                                        value: "",
+                                        field: "Incident date",
+                                        attribute: "Incident date",
+                                        id: generateUid(),
+                                        valueType: "DATE",
+                                        uniqueKey,
+                                    }),
+                                };
+                            }
+                            if (dateAreValid) {
+                                previousEnrollment = {
+                                    enrollment: generateUid(),
+                                    enrollmentDate:
+                                        enrollmentDate.format("YYYY-MM-DD"),
+                                    attributes: {},
+                                };
+                                let currentEnrollment: Partial<Enrollment> = {
+                                    program: mapping.program.program,
+                                    trackedEntityInstance:
+                                        previousTrackedEntity,
+                                    orgUnit: previousOrgUnit,
+                                    enrollmentDate:
+                                        enrollmentDate.format("YYYY-MM-DD"),
+                                    incidentDate:
+                                        enrollmentDate.format("YYYY-MM-DD"),
+                                    enrollment: previousEnrollment.enrollment,
+                                };
+                                if (!isEmpty(enrollmentGeometry)) {
+                                    currentEnrollment = {
+                                        ...currentEnrollment,
+                                        geometry: enrollmentGeometry,
+                                    };
+                                }
+                                results = {
+                                    ...results,
+                                    enrollments:
+                                        results.enrollments.concat(
                                             currentEnrollment,
                                         ),
                                 };
+
+                                if (
+                                    isEmpty(previousAttributes) &&
+                                    createEntities &&
+                                    !isEmpty(currentTrackedEntity)
+                                ) {
+                                    results = {
+                                        ...results,
+                                        trackedEntityInstances:
+                                            results.trackedEntityInstances.concat(
+                                                currentTrackedEntity,
+                                            ),
+                                    };
+                                }
                             }
-
+                        } else {
                             results = {
                                 ...results,
-                                errors: results.errors.concat(errors),
-                                conflicts: results.conflicts.concat(conflicts),
-                            };
-                        }
-
-                        if (
-                            previousOrgUnit &&
-                            previousEnrollment &&
-                            previousEnrollment.enrollment &&
-                            previousEnrollment.enrollmentDate &&
-                            previousTrackedEntity
-                        ) {
-                            const { eventUpdates, newEvents } = processEvents({
-                                data: enrollmentData,
-                                programStageMapping,
-                                trackedEntityInstance: previousTrackedEntity,
-                                enrollment: previousEnrollment,
-                                orgUnit: previousOrgUnit,
-                                program: mapping.program.program || "",
-                                previousEvents: getOr(
-                                    {},
+                                errors: results.errors.concat({
+                                    value: "",
+                                    attribute:
+                                        "enrollment date and/or incident date",
+                                    field: "enrollment date and/or incident date",
+                                    id: generateUid(),
+                                    message:
+                                        "Missing enrollment date and/or incident date",
+                                    valueType: "DATE",
                                     uniqueKey,
-                                    previousData.dataElements,
-                                ),
-                                stages,
-                                options: flippedOptions,
-                                dataElements: allElements,
-                                uniqueKey,
-                                registration,
-                                eventStageMapping: mapping.eventStageMapping,
-                            });
-
-                            results = {
-                                ...results,
-                                events: results.events.concat(newEvents),
-                                eventUpdates:
-                                    results.eventUpdates.concat(eventUpdates),
-                                conflicts: results.conflicts.concat(conflicts),
-                                errors: results.errors.concat(errors),
+                                }),
                             };
                         }
                     }
-                } else if (
-                    previousOrgUnit &&
-                    previousEnrollments.length === 1
-                ) {
-                    const { eventUpdates, newEvents } = processEvents({
-                        data: current,
-                        programStageMapping,
-                        trackedEntityInstance: previousTrackedEntity,
-                        enrollment: previousEnrollments[0],
-                        orgUnit: previousOrgUnit,
-                        program: mapping.program.program || "",
-                        previousEvents: getOr(
-                            {},
-                            uniqueKey,
-                            previousData.dataElements,
-                        ),
-                        stages,
-                        options: flippedOptions,
-                        dataElements: allElements,
-                        uniqueKey,
-                        registration,
-                        eventStageMapping: mapping.eventStageMapping,
-                    });
-                    results = {
-                        ...results,
-                        events: results.events.concat(newEvents),
-                        eventUpdates: results.eventUpdates.concat(eventUpdates),
-                        conflicts: results.conflicts.concat(conflicts),
-                        errors: results.errors.concat(errors),
-                    };
-                }
-            } else if (previousOrgUnit) {
-                const { eventUpdates, newEvents, conflicts, errors } =
-                    processEvents({
-                        data: current,
-                        programStageMapping,
-                        orgUnit: previousOrgUnit,
-                        program: mapping.program.program || "",
-                        previousEvents: getOr(
-                            {},
-                            uniqueKey,
-                            previousData.dataElements,
-                        ),
-                        stages,
-                        options: flippedOptions,
-                        dataElements: allElements,
-                        uniqueKey,
-                        registration: false,
-                        eventStageMapping: mapping.eventStageMapping,
-                    });
 
+                    if (
+                        previousOrgUnit &&
+                        previousEnrollment &&
+                        previousEnrollment.enrollment &&
+                        previousEnrollment.enrollmentDate &&
+                        previousTrackedEntity
+                    ) {
+                        const { eventUpdates, newEvents } = processEvents({
+                            data: enrollmentData,
+                            programStageMapping,
+                            trackedEntityInstance: previousTrackedEntity,
+                            enrollment: previousEnrollment,
+                            orgUnit: previousOrgUnit,
+                            program: mapping.program.program || "",
+                            previousEvents: getOr(
+                                {},
+                                uniqueKey,
+                                previousData.dataElements,
+                            ),
+                            stages,
+                            options: flippedOptions,
+                            dataElements: allElements,
+                            uniqueKey,
+                            registration,
+                            eventStageMapping: mapping.eventStageMapping,
+                        });
+
+                        results = {
+                            ...results,
+                            events: results.events.concat(newEvents),
+                            eventUpdates:
+                                results.eventUpdates.concat(eventUpdates),
+                            conflicts: results.conflicts.concat(conflicts),
+                            errors: results.errors.concat(errors),
+                        };
+                    }
+                }
+            } else if (previousOrgUnit && previousEnrollments.length === 1) {
+                console.log("Are we almost inserting");
+                const { eventUpdates, newEvents } = processEvents({
+                    data: current,
+                    programStageMapping,
+                    trackedEntityInstance: previousTrackedEntity,
+                    enrollment: previousEnrollments[0],
+                    orgUnit: previousOrgUnit,
+                    program: mapping.program.program || "",
+                    previousEvents: getOr(
+                        {},
+                        uniqueKey,
+                        previousData.dataElements,
+                    ),
+                    stages,
+                    options: flippedOptions,
+                    dataElements: allElements,
+                    uniqueKey,
+                    registration,
+                    eventStageMapping: mapping.eventStageMapping,
+                });
                 results = {
                     ...results,
                     events: results.events.concat(newEvents),
@@ -600,43 +519,42 @@ export const convertToDHIS2 = ({
                     conflicts: results.conflicts.concat(conflicts),
                     errors: results.errors.concat(errors),
                 };
+            } else if (previousOrgUnit && previousEnrollments.length > 0) {
+                console.log("We are actually in the middle");
             }
+        } else if (previousOrgUnit) {
+            const { eventUpdates, newEvents, conflicts, errors } =
+                processEvents({
+                    data: current,
+                    programStageMapping,
+                    orgUnit: previousOrgUnit,
+                    program: mapping.program.program || "",
+                    previousEvents: getOr(
+                        {},
+                        uniqueKey,
+                        previousData.dataElements,
+                    ),
+                    stages,
+                    options: flippedOptions,
+                    dataElements: allElements,
+                    uniqueKey,
+                    registration: false,
+                    eventStageMapping: mapping.eventStageMapping,
+                });
 
-            return {
+            results = {
                 ...results,
-                conflicts: results.conflicts.filter((a) => !!a),
-                errors: results.errors.filter((a) => !!a),
+                events: results.events.concat(newEvents),
+                eventUpdates: results.eventUpdates.concat(eventUpdates),
+                conflicts: results.conflicts.concat(conflicts),
+                errors: results.errors.concat(errors),
             };
-        },
-    );
-
-    const trackedEntityInstances = processed.flatMap(({ trackedEntity }) => {
-        if (!isEmpty(trackedEntity)) return trackedEntity;
-        return [];
+        }
     });
 
-    const enrollments = processed.flatMap(({ enrollments }) => enrollments);
-    const enrollmentUpdates = processed.flatMap(
-        ({ enrollmentUpdates }) => enrollmentUpdates,
-    );
-    const errors = processed.flatMap(({ errors }) => errors);
-    const conflicts = processed.flatMap(({ conflicts }) => conflicts);
-    const events = processed.flatMap(({ events }) => events);
-    const trackedEntityInstanceUpdates = processed.flatMap(
-        ({ trackedEntityUpdate }) => {
-            if (!isEmpty(trackedEntityUpdate)) return trackedEntityUpdate;
-            return [];
-        },
-    );
-    const eventUpdates = processed.flatMap(({ eventUpdates }) => eventUpdates);
     return {
-        trackedEntityInstances,
-        events,
-        enrollments,
-        trackedEntityInstanceUpdates,
-        enrollmentUpdates,
-        eventUpdates,
-        errors,
-        conflicts,
+        ...results,
+        conflicts: results.conflicts.filter((a) => !!a),
+        errors: results.errors.filter((a) => !!a),
     };
 };

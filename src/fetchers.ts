@@ -60,15 +60,17 @@ export async function getFetcher({
                 program: mapping.program.remoteProgram,
                 trackedEntityType: mapping.program.trackedEntityType,
                 additionalParams,
-                trackedEntityInstances: [
-                    mapping.dhis2SourceOptions.trackedEntityInstance,
-                ],
+                trackedEntityInstances:
+                    mapping.dhis2SourceOptions.trackedEntityInstance?.split(
+                        ",",
+                    ) ?? [],
                 fields,
                 pageSize,
                 uniqueAttributeValues,
                 numberOfUniqAttribute,
                 withAttributes,
                 setMessage,
+                fetchBy: mapping.dhis2SourceOptions.fetchBy,
             },
             afterFetch,
         );

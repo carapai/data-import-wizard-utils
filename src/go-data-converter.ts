@@ -80,7 +80,6 @@ export const convertToGoData = (
             questionnaire: [],
         },
     };
-
     data.forEach((instanceData) => {
         const all = [
             GO_DATA_PERSON_FIELDS.map((a) => {
@@ -187,7 +186,6 @@ export const convertToGoData = (
             lab,
             questionnaire,
         ] = all;
-
         const {
             person: prevPeople,
             epidemiology: prevEpidemiology,

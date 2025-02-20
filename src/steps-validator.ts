@@ -308,31 +308,38 @@ export const makeValidation = ({
         },
         9: {
             "go-data": !mandatoryAttributesMapped({
-                destinationFields: metadata.destinationAttributes,
+                destinationFields:
+                    metadata.destinationTrackedEntityTypeAttributes,
                 attributeMapping,
             }),
             "csv-line-list": !mandatoryAttributesMapped({
-                destinationFields: metadata.destinationAttributes,
+                destinationFields:
+                    metadata.destinationTrackedEntityTypeAttributes,
                 attributeMapping,
             }),
             "xlsx-line-list": !mandatoryAttributesMapped({
-                destinationFields: metadata.destinationAttributes,
+                destinationFields:
+                    metadata.destinationTrackedEntityTypeAttributes,
                 attributeMapping,
             }),
             "dhis2-program": !mandatoryAttributesMapped({
-                destinationFields: metadata.destinationAttributes,
+                destinationFields:
+                    metadata.destinationTrackedEntityTypeAttributes,
                 attributeMapping,
             }),
             json: !mandatoryAttributesMapped({
-                destinationFields: metadata.destinationAttributes,
+                destinationFields:
+                    metadata.destinationTrackedEntityTypeAttributes,
                 attributeMapping,
             }),
             api: !mandatoryAttributesMapped({
-                destinationFields: metadata.destinationAttributes,
+                destinationFields:
+                    metadata.destinationTrackedEntityTypeAttributes,
                 attributeMapping,
             }),
             fhir: !mandatoryAttributesMapped({
-                destinationFields: metadata.destinationAttributes,
+                destinationFields:
+                    metadata.destinationTrackedEntityTypeAttributes,
                 attributeMapping,
             }),
 

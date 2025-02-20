@@ -1,4 +1,5 @@
 import { AxiosInstance } from "axios";
+import { Style as ExcelStyle, IconSetTypes } from "exceljs";
 import { OptionBase } from "chakra-react-select";
 import { Dictionary } from "lodash";
 import type {
@@ -49,6 +50,9 @@ export interface DHIS2DestinationOptions {
     chunkSize: number;
     async: boolean;
     completeDataSet: boolean;
+    skipRuleEngine: boolean;
+    skipSideEffects: boolean;
+    skipPatternValidation: boolean;
 }
 
 export type Filter = {
@@ -56,6 +60,13 @@ export type Filter = {
     operator: string;
     value: string;
 };
+
+export interface ExportColumn {
+    column: string;
+    label: string;
+    repeatable?: boolean;
+    children: Array<Omit<ExportColumn, "children">>;
+}
 
 export interface DHIS2SourceOptions {
     programStages: string[];
@@ -66,7 +77,10 @@ export interface DHIS2SourceOptions {
     trackedEntityInstance: string;
     attributeFilters: Filter[];
     dataElementFilters: Filter[];
-    columns: React.Key[];
+    columns: ExportColumn[];
+    fetchBy: "program" | "trackedEntityType";
+    flattenBy: "trackedEntities" | "events" | "enrollments";
+    chunkSize: number;
 }
 
 export interface DHIS2ProcessedData {
@@ -115,19 +129,48 @@ export interface TrackedEntityType extends CommonIdentifier {
 export interface DHIS2OrgUnit extends CommonIdentifier {
     parent: Partial<DHIS2OrgUnit>;
 }
+export type ValueTypeKey =
+    | "TEXT"
+    | "LONG_TEXT"
+    | "LETTER"
+    | "PHONE_NUMBER"
+    | "EMAIL"
+    | "BOOLEAN"
+    | "TRUE_ONLY"
+    | "DATE"
+    | "DATETIME"
+    | "TIME"
+    | "NUMBER"
+    | "UNIT_INTERVAL"
+    | "PERCENTAGE"
+    | "INTEGER"
+    | "INTEGER_POSITIVE"
+    | "INTEGER_NEGATIVE"
+    | "INTEGER_ZERO_OR_POSITIVE"
+    | "TRACKER_ASSOCIATE"
+    | "USERNAME"
+    | "COORDINATE"
+    | "ORGANISATION_UNIT"
+    | "REFERENCE"
+    | "AGE"
+    | "URL"
+    | "FILE_RESOURCE"
+    | "IMAGE"
+    | "GEOJSON"
+    | "MULTI_TEXT";
 
-export const ValueType: {
-    [key: string]:
-        | ZodString
-        | ZodBoolean
-        | ZodNumber
-        | ZodLiteral<true>
-        | ZodEffects<ZodNumber, number, unknown>
-        | ZodUnion<[ZodNumber, ZodString]>
-        | ZodUnion<[ZodBoolean, ZodEffects<ZodString, boolean, string>]>
-        | ZodUnion<[ZodLiteral<true>, ZodEffects<ZodString, boolean, string>]>
-        | ZodUnion<[ZodString, ZodNumber]>;
-} = {
+export const ValueType: Record<
+    ValueTypeKey,
+    | ZodString
+    | ZodBoolean
+    | ZodNumber
+    | ZodLiteral<true>
+    | ZodEffects<ZodNumber, number, unknown>
+    | ZodUnion<[ZodNumber, ZodString]>
+    | ZodUnion<[ZodBoolean, ZodEffects<ZodString, boolean, string>]>
+    | ZodUnion<[ZodLiteral<true>, ZodEffects<ZodString, boolean, string>]>
+    | ZodUnion<[ZodString, ZodNumber]>
+> = {
     TEXT: z.string().min(1),
     LONG_TEXT: z.string().min(1),
     LETTER: z.string().length(1),
@@ -445,12 +488,12 @@ export interface RealMapping {
     unique: boolean;
     stage: string;
     isSpecific: boolean;
-    valueType: string;
+    valueType: keyof typeof ValueType;
     isOrgUnit: boolean;
     customType: string;
     isManual: boolean;
     destination: string;
-	format:string
+    format: string;
 }
 
 export interface Mapping {
@@ -560,7 +603,7 @@ export interface Option extends OptionBase {
     optionSet?: string;
     mandatory?: boolean;
     availableOptions?: Option[];
-    valueType?: string;
+    valueType?: keyof typeof ValueType;
     entity?: string;
     multiple?: boolean;
     isOrgUnit?: boolean;
@@ -1049,8 +1092,10 @@ export type Metadata = {
     destinationOrgUnits: Option[];
     sourceColumns: Option[];
     destinationColumns: Option[];
-    sourceAttributes: Option[];
-    destinationAttributes: Option[];
+    sourceTrackedEntityTypeAttributes: Option[];
+    destinationTrackedEntityTypeAttributes: Option[];
+    sourceTrackedEntityAttributes: Option[];
+    destinationTrackedEntityAttributes: Option[];
     sourceStages: Option[];
     destinationStages: Option[];
     uniqueAttributeValues: Array<Dictionary<any>>;
@@ -1253,4 +1298,134 @@ export type OU = {
     name: string;
     level: number;
     ancestors: Array<{ id: string; name: string; level: number }>;
+};
+
+export interface Color {
+    argb: string;
+}
+
+export interface Font {
+    name?: string;
+    size?: number;
+    bold?: boolean;
+    italic?: boolean;
+    underline?: boolean;
+    color?: Color;
+}
+
+export interface Fill {
+    type: "pattern";
+    pattern: "solid" | "darkVertical" | "darkHorizontal" | "darkGrid";
+    fgColor?: Color;
+    bgColor?: Color;
+}
+
+export interface Border {
+    style: "thin" | "medium" | "thick" | "dotted" | "dashed";
+    color?: Color;
+}
+
+export interface Borders {
+    top?: Border;
+    left?: Border;
+    bottom?: Border;
+    right?: Border;
+}
+
+export interface Alignment {
+    vertical?: "top" | "middle" | "bottom";
+    horizontal?: "left" | "center" | "right";
+    wrapText?: boolean;
+}
+
+export interface CellStyle {
+    font?: Font;
+    fill?: Fill;
+    border?: Partial<Borders>;
+    borders?: Borders;
+    alignment?: Alignment;
+    numFmt?: string;
+}
+
+export interface ConditionalFormatting {
+    type: "dataBar" | "colorScale" | "iconSet" | "cellIs" | "containsText";
+    operator?:
+        | "greaterThan"
+        | "lessThan"
+        | "equal"
+        | "between"
+        | "greaterThanOrEqual"
+        | "lessThanOrEqual";
+    value?: number | string;
+    minValue?: number;
+    maxValue?: number;
+    customStyle?: CellStyle;
+    style?: Partial<ExcelStyle>;
+    format?: {
+        minimum?: { color: Color };
+        midpoint?: { color: Color };
+        maximum?: { color: Color };
+        icons?: IconSetTypes;
+        gradient?: boolean;
+        color?: Color;
+    };
+}
+
+export interface ExcelColumnOptions {
+    key: string;
+    width?: number;
+    header?: string | string[];
+    customStyle?: CellStyle;
+    style?: Partial<ExcelStyle>;
+    conditionalFormats?: ConditionalFormatting[];
+    autoWidth?: boolean;
+}
+
+export interface ExcelHeader {
+    title: string;
+    key?: string;
+    width?: number;
+    span?: number;
+    children?: ExcelHeader[];
+    customStyle?: CellStyle;
+    style?: Partial<ExcelStyle>;
+    conditionalFormats?: ConditionalFormatting[];
+    autoWidth?: boolean;
+}
+
+export interface ColumnInfo {
+    totalColumns: number;
+    merges: Array<{
+        start: { row: number; col: number };
+        end: { row: number; col: number };
+    }>;
+    columns: ExcelColumnOptions[];
+    maxDepth: number;
+}
+
+export interface StyleRule {
+    type: "value" | "column" | "row" | "custom";
+    condition: any;
+    columns?: string[];
+    style: CellStyle | ((value: any, rowData: any) => CellStyle);
+}
+
+export interface GenerateExcelOptions {
+    sheetName?: string;
+    styleRules?: StyleRule[];
+    autoFitColumns?: boolean;
+}
+
+export type Parent = {
+    id: string;
+    name: string;
+    parent?: {
+        id: string;
+        name: string;
+        parent?: {
+            id: string;
+            name: string;
+            parent?: { id: string; name: string };
+        };
+    };
 };

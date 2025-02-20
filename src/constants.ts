@@ -437,7 +437,7 @@ export const GO_DATA_EPIDEMIOLOGY_FIELDS: Option[] = [
     {
         value: "classification",
         label: "Case classification",
-        mandatory: false,
+        mandatory: true,
         multiple: false,
         entity: "CASE",
         availableOptions: [],

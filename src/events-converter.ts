@@ -53,16 +53,16 @@ export const processEvents = ({
             const stagePreviousEvents = previousEvents[programStage] || {};
             let currentData = fromPairs([["", data]]);
             const {
-                createEvents,
-                eventDateColumn,
-                dueDateColumn,
-                updateEvents,
-                eventIdColumn,
-                uniqueEventDate,
+                createEvents = false,
+                eventDateColumn = "",
+                dueDateColumn = "",
+                updateEvents = false,
+                eventIdColumn = "",
+                uniqueEventDate = false,
                 geometryColumn = "",
-                createEmptyEvents,
-                completeEvents,
-            } = eventStageMapping[programStage];
+                createEmptyEvents = false,
+                completeEvents = false,
+            } = eventStageMapping[programStage] ?? {};
             const { info, ...elements } = mapping;
             if (createEvents || updateEvents || createEmptyEvents) {
                 let uniqueColumns = Object.entries(elements).flatMap(
@@ -134,10 +134,15 @@ export const processEvents = ({
                         if (completeEvents) {
                             others = { ...others, status: "COMPLETED" };
                         }
+                        console.log(
+                            previousEvent.enrollment,
+                            enrollment.enrollment,
+                        );
                         if (
                             previousEvent &&
                             previousEvent.enrollment === enrollment.enrollment
                         ) {
+                            console.log("Are we here now");
                             const { event, eventDate, enrollment, ...rest } =
                                 previousEvent;
                             const difference = diff(rest, dataValues);

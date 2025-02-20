@@ -1,5 +1,5 @@
 import { AxiosInstance } from "axios";
-import { create, Dictionary, isArray } from "lodash";
+import { Dictionary, isArray } from "lodash";
 import { chunk, fromPairs, getOr, isEmpty, uniqBy } from "lodash/fp";
 import { z } from "zod";
 import {
@@ -108,7 +108,7 @@ export const getDataElements = (program: Partial<IProgram>): Option[] => {
                         unique: false,
                         mandatory: compulsory,
                         optionSetValue,
-                        valueType: String(valueType),
+                        valueType: valueType,
                         allowFutureDate,
                         availableOptions:
                             optionSet?.options.map(({ code, id, name }) => ({
@@ -148,14 +148,14 @@ export const getAttributes = (
 ): {
     attributes: Option[];
     enrollmentAttributes: Option[];
-    trackedEntityAttributes: Option[];
+    trackedEntityTypeAttributes: Option[];
 } => {
     if (
         !isEmpty(program) &&
         program.registration &&
         program.programTrackedEntityAttributes
     ) {
-        const trackedEntityAttributes =
+        const trackedEntityTypeAttributes =
             program.trackedEntityType?.trackedEntityTypeAttributes.map(
                 ({
                     mandatory,
@@ -176,7 +176,7 @@ export const getAttributes = (
                         unique,
                         mandatory,
                         optionSetValue,
-                        valueType: String(valueType),
+                        valueType: valueType,
                         availableOptions:
                             optionSet?.options.map(({ code, id, name }) => ({
                                 label: name,
@@ -208,7 +208,7 @@ export const getAttributes = (
                         unique,
                         mandatory,
                         optionSetValue,
-                        valueType: String(valueType),
+                        valueType,
                         availableOptions:
                             optionSet?.options.map(({ code, id, name }) => ({
                                 label: name,
@@ -220,32 +220,23 @@ export const getAttributes = (
                 },
             ) ?? [];
 
-        const mandatory = allAttributes.flatMap(({ mandatory, value }) =>
-            mandatory ? value : [],
-        );
-
-        const trackedEntityTypeAttributeIds = trackedEntityAttributes.map(
+        const trackedEntityTypeAttributeIds = trackedEntityTypeAttributes.map(
             ({ value }) => value,
         );
 
-        const enrollmentAttributes = allAttributes.filter(
-            ({ value, mandatory }) => {
-                if (mandatory) return true;
-                return !trackedEntityTypeAttributeIds.includes(value);
-            },
-        );
+        const enrollmentAttributes = allAttributes.filter(({ value }) => {
+            return !trackedEntityTypeAttributeIds.includes(value);
+        });
 
         return {
             attributes: allAttributes,
-            trackedEntityAttributes: trackedEntityAttributes.filter(
-                ({ value }) => !mandatory.includes(value),
-            ),
+            trackedEntityTypeAttributes,
             enrollmentAttributes,
         };
     }
     return {
         attributes: [],
-        trackedEntityAttributes: [],
+        trackedEntityTypeAttributes: [],
         enrollmentAttributes: [],
     };
 };
@@ -432,20 +423,24 @@ export const flattenProgram = (program: Partial<IProgram>) => {
             programStages,
             trackedEntityType,
         } = program;
-        const attributes =
+        const attributes: Option[] =
             programTrackedEntityAttributes?.map(
                 ({
+                    mandatory,
                     trackedEntityAttribute: {
                         id,
                         name,
                         optionSetValue,
                         optionSet,
+                        unique,
                     },
                 }) => {
                     const option: Option = {
                         label: name,
                         value: id,
                         optionSetValue,
+                        unique,
+                        mandatory,
                         availableOptions:
                             optionSet?.options.map(({ code, id, name }) => ({
                                 label: name,
@@ -461,16 +456,22 @@ export const flattenProgram = (program: Partial<IProgram>) => {
         const trackedEntityTypeAttributes =
             trackedEntityType?.trackedEntityTypeAttributes.map(
                 ({
+                    mandatory,
                     trackedEntityAttribute: {
                         id,
                         name,
                         optionSetValue,
                         optionSet,
+                        unique,
+                        code,
                     },
                 }) => ({
                     label: name,
                     value: id,
                     optionSetValue,
+                    mandatory,
+                    unique,
+                    code,
                     availableOptions:
                         optionSet?.options.map(({ code, id, name }) => ({
                             label: name,
@@ -480,26 +481,41 @@ export const flattenProgram = (program: Partial<IProgram>) => {
                         })) || [],
                 }),
             );
-        const elements = programStages.flatMap(
+        const elements: Option[] = programStages.flatMap(
             ({ id: stageId, name: stageName, programStageDataElements }) => {
                 const dataElements = programStageDataElements.map(
                     ({
-                        dataElement: { id, name, optionSetValue, optionSet },
+                        dataElement: {
+                            id,
+                            name,
+                            optionSetValue,
+                            optionSet,
+                            code,
+                            valueType,
+                        },
+                        compulsory,
                     }) => {
+                        const availableOptions =
+                            optionSet?.options.flatMap((option) => {
+                                if (option) {
+                                    return {
+                                        label: option.name,
+                                        code: option.code,
+                                        value: option.code,
+                                        id: option.id,
+                                    };
+                                }
+                                return [];
+                            }) || [];
                         return {
+                            code,
                             label: `${stageName}-${name}`,
                             value: `${stageId}.${id}`,
                             optionSetValue: optionSetValue || false,
                             id,
-                            availableOptions:
-                                optionSet?.options.map(
-                                    ({ code, id, name }) => ({
-                                        label: `${name}(${code})`,
-                                        code,
-                                        value: code,
-                                        id,
-                                    }),
-                                ) || [],
+                            availableOptions,
+                            mandatory: compulsory,
+                            valueType,
                         };
                     },
                 );
@@ -620,15 +636,13 @@ const convertEvents = (enrollments: Partial<Event>[]) => {
 export const insertTrackerData38 = async ({
     processedData,
     api,
-    async,
-    chunkSize,
     onInsert,
+    mapping,
 }: {
     processedData: Processed;
     api: Partial<{ engine: any; axios: AxiosInstance }>;
-    async: boolean;
-    chunkSize: number;
     onInsert: (response: any) => void;
+    mapping: Partial<IMapping>;
 }) => {
     let {
         dhis2: {
@@ -639,10 +653,23 @@ export const insertTrackerData38 = async ({
             eventUpdates,
         },
     } = processedData;
+    const {
+        skipPatternValidation = false,
+        skipRuleEngine = false,
+        skipSideEffects = false,
+        chunkSize,
+        async,
+    } = mapping.dhis2DestinationOptions;
     let availableEvents = events.concat(eventUpdates);
     let availableEntities = trackedEntityInstances.concat(
         trackedEntityInstanceUpdates,
     );
+    const params = {
+        skipPatternValidation,
+        skipRuleEngine,
+        skipSideEffects,
+        async,
+    };
     for (const instances of chunk(chunkSize, availableEntities)) {
         const instanceIds = instances.map(
             ({ trackedEntityInstance }) => trackedEntityInstance,
@@ -677,14 +704,16 @@ export const insertTrackerData38 = async ({
                     type: "create",
                     resource: "tracker",
                     data: processedData,
-                    params: { async },
+                    params,
                 });
                 onInsert(response);
             } else if (api.axios) {
                 const { data } = await api.axios.post(
                     "api/tracker",
                     processedData,
-                    { params: { async } },
+                    {
+                        params,
+                    },
                 );
                 onInsert(data);
             }
@@ -711,12 +740,12 @@ export const insertTrackerData38 = async ({
                     type: "create",
                     resource: "tracker",
                     data: payload,
-                    params: { async },
+                    params,
                 });
                 onInsert(response);
             } else if (api.axios) {
                 const { data } = await api.axios.post("api/tracker", payload, {
-                    params: { async },
+                    params,
                 });
                 onInsert(data);
             }
@@ -730,7 +759,7 @@ export const insertTrackerData38 = async ({
                     type: "create",
                     resource: "tracker",
                     data: { events: convertEvents(currentEvents) },
-                    params: { async },
+                    params,
                 });
                 onInsert(response);
             } else if (api.axios) {
@@ -739,7 +768,9 @@ export const insertTrackerData38 = async ({
                     {
                         events: convertEvents(currentEvents),
                     },
-                    { params: { async } },
+                    {
+                        params,
+                    },
                 );
                 onInsert(data);
             }
@@ -989,14 +1020,13 @@ export const getPreviousProgramMapping = async (
     const enrollmentMapping: Mapping =
         previousMappings["iw-enrollment-mapping"] || {};
 
-    callBack("Loading program for saved mapping");
-
     let program: Partial<IProgram> = {};
     let remoteProgram: Partial<IProgram> = {};
     let dataSet: Partial<IDataSet> = {};
     let remoteDataSet: Partial<IDataSet> = {};
 
     if (mapping.program && mapping.program.program) {
+        callBack("Loading program for saved mapping");
         program = await loadProgram<Partial<IProgram>>({
             api,
             resource: "programs",
@@ -1010,6 +1040,7 @@ export const getPreviousProgramMapping = async (
         mapping.program.remoteProgram &&
         mapping.dataSource === "dhis2-program"
     ) {
+        callBack("Loading remote program");
         let currentApi = api;
         if (!mapping.isCurrentInstance) {
             currentApi = {

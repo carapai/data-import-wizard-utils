@@ -1,5 +1,5 @@
 import { AxiosInstance } from "axios";
-import { Dictionary, isArray, uniq } from "lodash";
+import { Dictionary, isArray, isEmpty, uniq } from "lodash";
 import { getOr } from "lodash/fp";
 import { emptyProcessedData } from "./constants";
 import { convertToDHIS2 } from "./dhis2-converter";
@@ -19,7 +19,6 @@ import {
     Metadata,
     Processed,
     StageMapping,
-    TrackedEntityInstance,
 } from "./interfaces";
 import {
     getProgramStageUniqElements,
@@ -56,7 +55,15 @@ export const convert = async ({
     sourceApi: Partial<{ engine: any; axios: AxiosInstance }>;
     destinationApi: Partial<{ engine: any; axios: AxiosInstance }>;
     setMessage: (message: string) => void;
-    afterConversion: (data: Processed) => void;
+    afterConversion: (
+        data: Processed,
+        pager: Partial<{
+            page: number;
+            pageCount: number;
+            total: number;
+            pageSize: number;
+        }>,
+    ) => void;
     additionalParams?: {
         [key: string]: string;
     };
@@ -108,17 +115,19 @@ export const convert = async ({
                 data: { trackedEntityInstances, data, goDataData },
                 tokens,
             });
-
             if (mapping.isSource) {
                 if (
                     ["csv-line-list", "xlsx-line-list"].indexOf(
                         mapping.dataSource,
                     ) !== -1
                 ) {
-                    afterConversion({
-                        ...emptyProcessedData,
-                        processedData: flattenedData,
-                    });
+                    afterConversion(
+                        {
+                            ...emptyProcessedData,
+                            processedData: flattenedData,
+                        },
+                        pager,
+                    );
                 } else if (mapping.dataSource === "api") {
                 } else if (mapping.dataSource === "dhis2-program") {
                     await processInstances(
@@ -135,7 +144,7 @@ export const convert = async ({
                             api: destinationApi,
                             setMessage,
                         },
-                        async (data) => afterConversion(data),
+                        async (data) => afterConversion(data, pager),
                     );
                 } else if (mapping.dataSource === "go-data") {
                     const { metadata } = await fetchGoDataData(
@@ -153,10 +162,13 @@ export const convert = async ({
                         referenceData,
                     );
 
-                    afterConversion({
-                        ...emptyProcessedData,
-                        goData: convertedGoData,
-                    });
+                    afterConversion(
+                        {
+                            ...emptyProcessedData,
+                            goData: convertedGoData,
+                        },
+                        pager,
+                    );
                 } else if (mapping.dataSource === "fhir") {
                 }
             } else {
@@ -175,22 +187,17 @@ export const convert = async ({
                             api: destinationApi,
                             setMessage,
                         },
-                        async (processed) => afterConversion(processed),
+                        async (processed) => afterConversion(processed, pager),
                     );
                 } else {
                     setMessage("Fetching previous data");
-                    // let previousData: {
-                    //     trackedEntityInstances: Array<
-                    //         Partial<TrackedEntityInstance>
-                    //     >;
-                    // } = { trackedEntityInstances: [] };
                     if (
                         mapping &&
                         mapping.program &&
                         mapping.program.updateEvents
                     ) {
                         const eventIdColumns: string[] = [];
-                        for (const [stage, currentMapping] of Object.entries(
+                        for (const [, currentMapping] of Object.entries(
                             mapping.eventStageMapping,
                         )) {
                             const { eventIdColumn } = currentMapping;
@@ -244,16 +251,21 @@ export const convert = async ({
                                         optionMapping,
                                         enrollmentMapping,
                                     });
-                                    afterConversion({
-                                        ...emptyProcessedData,
-                                        dhis2: convertedData,
-                                    });
+                                    afterConversion(
+                                        {
+                                            ...emptyProcessedData,
+                                            dhis2: convertedData,
+                                        },
+                                        pager,
+                                    );
                                 },
                                 pageSize: "10",
                                 others: {},
                             });
                         }
                     } else if (programUniqAttributes.length > 0) {
+                        const validUniqueAttributeValues =
+                            uniqueAttributeValues.filter((v) => !isEmpty(v));
                         await fetchTrackedEntityInstances(
                             {
                                 api: destinationApi,
@@ -268,12 +280,13 @@ export const convert = async ({
                                     ) ?? [],
                                 trackedEntityType:
                                     mapping.program.trackedEntityType,
-                                uniqueAttributeValues: uniqueAttributeValues,
+                                uniqueAttributeValues:
+                                    validUniqueAttributeValues,
                                 withAttributes:
                                     programUniqAttributes.length > 0,
                                 setMessage,
                             },
-                            ({ trackedEntityInstances }) => {
+                            ({ trackedEntityInstances, pager }) => {
                                 const previousData = processPreviousInstances({
                                     programUniqAttributes,
                                     programStageUniqueElements,
@@ -295,11 +308,40 @@ export const convert = async ({
                                     optionMapping,
                                     enrollmentMapping,
                                 });
-                                afterConversion({
-                                    ...emptyProcessedData,
-                                    dhis2: convertedData,
-                                });
+                                afterConversion(
+                                    {
+                                        ...emptyProcessedData,
+                                        dhis2: convertedData,
+                                    },
+                                    pager,
+                                );
                             },
+                        );
+                    } else {
+                        const convertedData = convertToDHIS2({
+                            program,
+                            previousData: {
+                                attributes: {},
+                                enrollments: {},
+                                dataElements: {},
+                                orgUnits: {},
+                                trackedEntities: {},
+                            },
+                            data: flattenedData,
+                            mapping,
+                            version,
+                            attributeMapping,
+                            programStageMapping,
+                            organisationUnitMapping,
+                            optionMapping,
+                            enrollmentMapping,
+                        });
+                        afterConversion(
+                            {
+                                ...emptyProcessedData,
+                                dhis2: convertedData,
+                            },
+                            pager,
                         );
                     }
                 }

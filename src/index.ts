@@ -19,3 +19,6 @@ export * from "./fetch-tracked-entities";
 export * from "./fetch-tracked-entities-by-ids";
 export * from "./fetch-events";
 export * from "./converters";
+export * from "./fetch-api-data";
+export * from "./processor";
+

@@ -49,45 +49,46 @@ export const groupEvents2 = (
     return finalEvents;
 };
 
+export const flattenEvent = (event: Partial<Event>) => {
+    const {
+        dataValues,
+        enrollment,
+        programStage,
+        trackedEntityInstance,
+        program,
+        ...rest
+    } = event;
+
+    return {
+        ...fromPairs(
+            dataValues.map(({ dataElement, value }) => [dataElement, value]),
+        ),
+        ...rest,
+    };
+};
+
 export const flattenEvents = (
     events: Array<Partial<Event>>,
     trackedEntityInstances?: Record<string, any>,
 ) => {
     return events
         .filter((a) => a !== undefined)
-        .map(
-            ({
-                dataValues,
-                enrollment,
-                programStage,
-                trackedEntityInstance,
-                program,
-                ...rest
-            }) => {
-                const obj = {
-                    [programStage]: {
-                        ...fromPairs(
-                            dataValues.map(({ dataElement, value }) => [
-                                dataElement,
-                                value,
-                            ]),
-                        ),
-                        ...rest,
-                    },
+        .map((event) => {
+            const flattenedEvent = flattenEvent(event);
+            const obj = {
+                [event.programStage]: flattenedEvent,
+            };
+            if (
+                trackedEntityInstances &&
+                trackedEntityInstances[event.trackedEntityInstance]
+            ) {
+                return {
+                    ...obj,
+                    ...trackedEntityInstances[event.trackedEntityInstance],
                 };
-                if (
-                    trackedEntityInstances &&
-                    trackedEntityInstances[trackedEntityInstance]
-                ) {
-                    return {
-                        ...obj,
-                        ...trackedEntityInstances[trackedEntityInstance],
-                    };
-                }
-
-                return obj;
-            },
-        );
+            }
+            return obj;
+        });
 };
 
 export function flattenEntitiesByEnrollment(
@@ -263,6 +264,57 @@ export const flattenTrackedEntityInstances = (
                                 }
                             });
                         }
+                    },
+                );
+            }
+            return current;
+        },
+    );
+};
+
+export const flattenForGoData = (
+    trackedEntityInstances: Array<Partial<TrackedEntityInstance>>,
+) => {
+    return trackedEntityInstances.flatMap(
+        ({ attributes, enrollments, ...otherAttributes }) => {
+            let current: Record<string, any> = {
+                ...otherAttributes,
+                ...fromPairs(
+                    attributes.map(({ attribute, value }) => [
+                        attribute,
+                        value,
+                    ]),
+                ),
+            };
+            if (enrollments.length > 0) {
+                return enrollments.flatMap(
+                    ({ events, program, attributes, ...enrollmentData }) => {
+                        current = {
+                            ...current,
+                            ...fromPairs(
+                                attributes.map(({ attribute, value }) => [
+                                    attribute,
+                                    value,
+                                ]),
+                            ),
+                            enrollment: enrollmentData,
+                        };
+                        if (events && events.length > 0) {
+                            Object.entries(
+                                groupBy("programStage", events),
+                            ).forEach(([stage, availableEvents]) => {
+                                const maxEvent = maxBy(
+                                    availableEvents,
+                                    "eventDate",
+                                );
+                                const flattenedEvent = flattenEvent(maxEvent);
+                                current = {
+                                    ...current,
+                                    [stage]: flattenedEvent,
+                                };
+                            });
+                        }
+                        return current;
                     },
                 );
             }
