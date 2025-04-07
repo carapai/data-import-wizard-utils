@@ -33,8 +33,8 @@ export const convertToAggregate = ({
     flippedAttribution,
 }: {
     mapping: Partial<IMapping>;
-    flippedOrgUnits: Record<string, string>;
-    flippedAttribution: Record<string, string>;
+    flippedOrgUnits: Map<string, string>;
+    flippedAttribution: Map<string, string>;
     dataMapping: Mapping;
     data: any[];
 }): {

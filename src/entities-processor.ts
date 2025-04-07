@@ -1,13 +1,101 @@
 import dayjs from "dayjs";
-import { Dictionary } from "lodash";
-import { fromPairs, groupBy, uniqBy } from "lodash/fp";
+import { fromPairs, uniqBy } from "lodash/fp";
 import {
+    Attribute,
+    Event,
     EventStageMapping,
     IEnrollment,
-    Mapping,
     RealMapping,
+    StageMapping,
     TrackedEntityInstance,
 } from "./interfaces";
+
+export const processPreviousEvents = ({
+    eventStageMapping,
+    programStageMapping,
+    programStageUniqueElements,
+    events,
+}: {
+    eventStageMapping: Map<string, Partial<EventStageMapping>>;
+    programStageMapping: StageMapping;
+    programStageUniqueElements: Map<string, Set<string>>;
+    events: Partial<Event>[];
+}) => {
+    const currentEvents: Map<
+        string,
+        Map<string, Map<string, string>>
+    > = new Map<string, Map<string, Map<string, string>>>();
+
+    programStageMapping.forEach((_, stage) => {
+        const availableEvents = events.filter(
+            ({ programStage }) => programStage === stage,
+        );
+        const stageUniqueElements = programStageUniqueElements.get(stage);
+        const currentMapping = programStageMapping.get(stage);
+
+        const stageMapping = eventStageMapping.get(stage);
+
+        if (currentMapping && stageMapping) {
+            const { eventIdColumn, uniqueAttribution, uniqueEventDate } =
+                stageMapping;
+
+            if (uniqueEventDate) {
+                stageUniqueElements.add("eventDate");
+            }
+            if (uniqueAttribution) {
+                stageUniqueElements.add("attribution");
+            }
+
+            const elements: Map<string, Map<string, string>> = new Map();
+            availableEvents.forEach((event) => {
+                if (event.eventDate) {
+                    const finalValues: Map<string, string> = new Map(
+                        [
+                            ...event.dataValues,
+                            {
+                                dataElement: "eventDate",
+                                value: dayjs(event.eventDate).format(
+                                    "YYYY-MM-DD",
+                                ),
+                            },
+                            {
+                                dataElement: "event",
+                                value: event.event,
+                            },
+                            {
+                                dataElement: "enrollment",
+                                value: event.enrollment,
+                            },
+                        ].map(({ dataElement, value }) => [dataElement, value]),
+                    );
+
+                    const dataElementKey = Array.from(finalValues.keys())
+                        .map((dataElement) => {
+                            if (
+                                dataElement &&
+                                stageUniqueElements &&
+                                stageUniqueElements.has(dataElement)
+                            ) {
+                                return finalValues.get(dataElement);
+                            }
+                            return [];
+                        })
+                        .sort()
+                        .join("");
+
+                    if (dataElementKey) {
+                        elements.set(dataElementKey, finalValues);
+                    } else {
+                        elements.set(event.event, finalValues);
+                    }
+                }
+            });
+            currentEvents.set(stage, elements);
+        }
+    });
+
+    return currentEvents;
+};
 
 export const processPreviousInstances = ({
     trackedEntityInstances,
@@ -17,22 +105,37 @@ export const processPreviousInstances = ({
     trackedEntityIdIdentifiesInstance,
     programStageMapping,
     eventStageMapping,
+    events,
+    isTracker,
 }: Partial<{
-    trackedEntityInstances: Array<Partial<TrackedEntityInstance>>;
-    programUniqAttributes: Array<Partial<RealMapping>>;
-    programStageUniqueElements: Dictionary<string[]>;
+    trackedEntityInstances?: Array<Partial<TrackedEntityInstance>>;
+    events?: Array<Partial<Event>>;
+    programUniqAttributes?: Array<Partial<RealMapping>>;
+    programStageUniqueElements: Map<string, Set<string>>;
     currentProgram: string;
-    trackedEntityIdIdentifiesInstance: boolean;
-    programStageMapping: Record<string, Mapping>;
-    eventStageMapping: Record<string, Partial<EventStageMapping>>;
+    trackedEntityIdIdentifiesInstance?: boolean;
+    programStageMapping: StageMapping;
+    eventStageMapping: Map<string, Partial<EventStageMapping>>;
+    isTracker: boolean;
 }>) => {
-    const currentAttributes: Array<[string, any]> = [];
-    const currentElements: Array<[string, any]> = [];
-    const currentEnrollments: Array<[string, Array<IEnrollment>]> = [];
-    const currentTrackedEntities: Array<[string, string]> = [];
-    const currentOrgUnits: Array<[string, string]> = [];
+    const mappedStages: Set<string> = new Set(programStageMapping.keys());
+    const foundAttributes: Map<string, Partial<Attribute>[]> = new Map();
+    const foundTrackerEvents: Map<
+        string,
+        Map<string, Map<string, Map<string, string>>>
+    > = new Map();
 
-    if (trackedEntityInstances) {
+    let foundEvents: Map<string, Map<string, Map<string, string>>> = new Map<
+        string,
+        Map<string, Map<string, string>>
+    >();
+    const foundEnrollments: Map<string, Array<IEnrollment>> = new Map<
+        string,
+        Array<IEnrollment>
+    >();
+    const foundTrackedEntities: Map<string, string> = new Map<string, string>();
+    const foundOrgUnits: Map<string, string> = new Map<string, string>();
+    if (isTracker && trackedEntityInstances) {
         trackedEntityInstances.forEach(
             ({ enrollments, attributes, trackedEntityInstance, orgUnit }) => {
                 const allAttributes = attributes.concat(
@@ -45,6 +148,7 @@ export const processPreviousInstances = ({
                     .flatMap(({ attribute, value }) => {
                         if (
                             attribute &&
+                            programUniqAttributes &&
                             programUniqAttributes
                                 .map(({ destination }) => destination)
                                 .includes(attribute)
@@ -59,18 +163,15 @@ export const processPreviousInstances = ({
                 if (trackedEntityIdIdentifiesInstance) {
                     attributeKey = trackedEntityInstance;
                 }
-                currentTrackedEntities.push([
-                    attributeKey,
-                    trackedEntityInstance,
-                ]);
-                currentAttributes.push([attributeKey, uniqueAttributes]);
-                currentOrgUnits.push([attributeKey, String(orgUnit)]);
+                foundTrackedEntities.set(attributeKey, trackedEntityInstance);
+                foundAttributes.set(attributeKey, uniqueAttributes);
+                foundOrgUnits.set(attributeKey, String(orgUnit));
                 if (enrollments.length > 0) {
                     const previousEnrollments = enrollments.filter(
                         ({ program }) => program === currentProgram,
                     );
                     if (previousEnrollments.length > 0) {
-                        currentEnrollments.push([
+                        foundEnrollments.set(
                             attributeKey,
                             previousEnrollments.map(
                                 ({
@@ -93,106 +194,40 @@ export const processPreviousInstances = ({
                                     ),
                                 }),
                             ),
-                        ]);
-
-                        const allEvents = enrollments.flatMap(({ events }) =>
-                            events.filter(({ programStage }) =>
-                                Object.keys(programStageMapping).includes(
-                                    programStage,
-                                ),
-                            ),
                         );
 
-                        console.log(allEvents, previousEnrollments);
+                        const allEvents = previousEnrollments.flatMap(
+                            ({ events }) =>
+                                events.filter(({ programStage }) =>
+                                    mappedStages.has(programStage),
+                                ),
+                        );
 
-                        const uniqueEvents = Object.entries(
-                            groupBy("programStage", allEvents),
-                        ).flatMap(([stage, availableEvents]) => {
-                            let stageElements =
-                                programStageUniqueElements[stage];
-                            const currentMapping = programStageMapping[stage];
-                            const { uniqueEventDate = false } =
-                                eventStageMapping?.[stage] ?? {};
-
-                            if (uniqueEventDate) {
-                                stageElements =
-                                    stageElements.concat("eventDate");
-                            }
-
-                            const { eventIdColumn } =
-                                eventStageMapping?.[stage] ?? {};
-                            if (currentMapping) {
-                                const elements = availableEvents.map(
-                                    (event) => {
-                                        if (event.eventDate) {
-                                            const finalValues = [
-                                                ...event.dataValues,
-                                                {
-                                                    dataElement: "eventDate",
-                                                    value: dayjs(
-                                                        event.eventDate,
-                                                    ).format("YYYY-MM-DD"),
-                                                },
-                                                {
-                                                    dataElement: "event",
-                                                    value: event.event,
-                                                },
-                                                {
-                                                    dataElement: "enrollment",
-                                                    value: event.enrollment,
-                                                },
-                                            ].map(({ dataElement, value }) => [
-                                                dataElement,
-                                                value,
-                                            ]);
-
-                                            let dataElementKey = finalValues
-                                                .flatMap(
-                                                    ([dataElement, value]) => {
-                                                        if (
-                                                            dataElement &&
-                                                            stageElements &&
-                                                            stageElements.includes(
-                                                                dataElement,
-                                                            )
-                                                        ) {
-                                                            return value;
-                                                        }
-                                                        return [];
-                                                    },
-                                                )
-                                                .sort()
-                                                .join("");
-                                            if (eventIdColumn) {
-                                                dataElementKey = event.event;
-                                            }
-
-                                            return [
-                                                dataElementKey,
-                                                fromPairs(finalValues),
-                                            ];
-                                        }
-                                        return [];
-                                    },
-                                );
-                                return [[stage, fromPairs(elements)]];
-                            }
-                            return [];
+                        const currentEvents = processPreviousEvents({
+                            events: allEvents,
+                            eventStageMapping,
+                            programStageMapping,
+                            programStageUniqueElements,
                         });
-                        currentElements.push([
-                            attributeKey,
-                            fromPairs(uniqueEvents),
-                        ]);
+                        foundTrackerEvents.set(attributeKey, currentEvents);
                     }
                 }
             },
         );
+    } else if (!isTracker && events) {
+        foundEvents = processPreviousEvents({
+            events: events,
+            eventStageMapping,
+            programStageMapping,
+            programStageUniqueElements,
+        });
     }
     return {
-        attributes: fromPairs(currentAttributes),
-        dataElements: fromPairs(currentElements),
-        enrollments: fromPairs(currentEnrollments),
-        trackedEntities: fromPairs(currentTrackedEntities),
-        orgUnits: fromPairs(currentOrgUnits),
+        attributes: foundAttributes,
+        dataElements: foundTrackerEvents,
+        enrollments: foundEnrollments,
+        trackedEntities: foundTrackedEntities,
+        orgUnits: foundOrgUnits,
+        events: foundEvents,
     };
 };

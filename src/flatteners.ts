@@ -1,14 +1,14 @@
 import { IBundle } from "@smile-cdr/fhirts/dist/FHIR-R4/interfaces/IBundle";
+import { getOr } from "lodash/fp";
 import {
+    flattenEntitiesByEnrollment,
     flattenEntitiesByEvents,
     flattenEntitiesByInstances,
     flattenForGoData,
-    flattenEntitiesByEnrollment,
 } from "./flatten-dhis2";
 import { flattenBundle } from "./flatten-fhir";
 import { flattenGoData } from "./flatten-go-data";
 import { FlattenArgs } from "./interfaces";
-import { getOr } from "lodash/fp";
 
 export function getFlattener({ mapping, data, tokens }: FlattenArgs) {
     if (mapping.dataSource === "go-data" && mapping.isSource) {
@@ -28,23 +28,24 @@ export function getFlattener({ mapping, data, tokens }: FlattenArgs) {
         return flattenedData;
     }
     if (
-        mapping.dataSource === "dhis2-program" &&
+        (mapping.dataSource === "dhis2-program" || mapping.isSource) &&
         mapping.dhis2SourceOptions.flattenBy === "events"
     ) {
         return flattenEntitiesByEvents(data.trackedEntityInstances);
     }
     if (
-        mapping.dataSource === "dhis2-program" &&
+        (mapping.dataSource === "dhis2-program" || mapping.isSource) &&
         mapping.dhis2SourceOptions.flattenBy === "trackedEntities"
     ) {
         return flattenEntitiesByInstances(data.trackedEntityInstances);
     }
     if (
-        mapping.dataSource === "dhis2-program" &&
+        (mapping.dataSource === "dhis2-program" || mapping.isSource) &&
         mapping.dhis2SourceOptions.flattenBy === "enrollments"
     ) {
         return flattenEntitiesByEnrollment(data.trackedEntityInstances);
     }
+
     if (mapping.dataSource === "go-data") {
         return flattenGoData(data.goDataData, tokens);
     }

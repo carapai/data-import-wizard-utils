@@ -2,11 +2,13 @@ import dayjs from "dayjs";
 import { fromPairs, getOr, groupBy, isEmpty } from "lodash/fp";
 import { processEvents } from "./events-converter";
 import {
+    Attribute,
     DHIS2ProcessedData,
     Enrollment,
     IEnrollment,
     IMapping,
     IProgram,
+    IProgramStage,
     Mapping,
     StageMapping,
     TrackedEntityInstance,
@@ -34,98 +36,56 @@ export const convertToDHIS2 = ({
     programStageMapping,
     organisationUnitMapping,
     optionMapping,
-    enrollmentMapping,
+    attributionMapping,
 }: {
     previousData: {
-        attributes: Record<string, Array<{ attribute: string; value: string }>>;
-        dataElements: Record<
+        attributes: Map<string, Partial<Attribute>[]>;
+        dataElements: Map<
             string,
-            Record<string, Record<string, Record<string, any>>>
+            Map<string, Map<string, Map<string, string>>>
         >;
-        enrollments: Record<string, IEnrollment[]>;
-        trackedEntities: Record<string, string>;
-        orgUnits: Record<string, string>;
+        events: Map<string, Map<string, Map<string, string>>>;
+        enrollments: Map<string, IEnrollment[]>;
+        trackedEntities: Map<string, string>;
+        orgUnits: Map<string, string>;
     };
     data: any[];
     mapping: Partial<IMapping>;
     organisationUnitMapping: Mapping;
     attributeMapping: Mapping;
+    attributionMapping: Mapping;
     programStageMapping: StageMapping;
-    optionMapping: Record<string, string>;
+    optionMapping: Map<string, string>;
     version: number;
     program: Partial<IProgram>;
     enrollmentMapping: Mapping;
 }): DHIS2ProcessedData => {
-    const { attributes } = getAttributes(program);
-    const attributeValues = attributes.map((a) => a.value);
-    const allElements = fromPairs(
-        getDataElements(program).map((e) => [e.value, e]),
-    );
-    const uniqColumns = getProgramUniqAttributes(attributeMapping);
-    const trackedEntityGeometryType =
-        program.trackedEntityType?.featureType ?? "";
-
-    const enrollmentGeometryType = program.featureType ?? "";
     const {
         selectEnrollmentDatesInFuture,
         selectIncidentDatesInFuture,
         programStages,
         registration,
     } = program;
-
-    const stages = fromPairs(
-        programStages.map((programStage) => {
-            return [programStage.id, programStage];
-        }),
+    const allElements = fromPairs(
+        getDataElements(program).map((e) => [e.value, e]),
     );
 
-    const {
-        trackedEntityInstanceColumn,
-        geometryColumn: instanceGeometryColumn,
-        createEntities,
-        updateEntities,
-    } = mapping.trackedEntityMapping ?? {};
+    const stages: Map<string, IProgramStage> = new Map(
+        programStages.map((programStage) => [programStage.id, programStage]),
+    );
 
     const { orgUnitColumn } = mapping.orgUnitMapping ?? {};
-    const {
-        enrollmentDateColumn,
-        incidentDateColumn,
-        updateEnrollments,
-        createEnrollments,
-        geometryColumn: enrollmentGeometryColumn,
-    } = mapping.enrollmentMapping ?? {};
 
     const flippedUnits = flipMapping(organisationUnitMapping, true);
-
-    const flippedOptions: Record<string, string> = {};
-
-    Object.entries(optionMapping).forEach(([option, value]) => {
+    const flippedAttribution = flipMapping(attributionMapping);
+    const flippedOptions: Map<string, string> = new Map<string, string>();
+    optionMapping.forEach((value, option) => {
         if (value) {
             value.split(",").forEach((u) => {
-                flippedOptions[u] = option;
+                flippedOptions.set(u, option);
             });
         }
     });
-    let groupedData: Record<string, any[]> = {};
-    if (trackedEntityInstanceColumn) {
-        groupedData = groupBy(trackedEntityInstanceColumn, data);
-    } else if (uniqColumns.length > 0) {
-        groupedData = groupBy(
-            (item: any) =>
-                uniqColumns
-                    .map((column) => getOr("", column.source, item))
-                    .sort()
-                    .join(""),
-            data,
-        );
-    } else {
-        groupedData = groupBy(
-            "id",
-            data.map((d) => {
-                return { id: generateUid(), ...d };
-            }),
-        );
-    }
 
     let results: DHIS2ProcessedData = {
         enrollments: [],
@@ -138,41 +98,68 @@ export const convertToDHIS2 = ({
         trackedEntityInstances: [],
     };
 
-    Object.entries(groupedData).forEach(([uniqueKey, current]) => {
-        let currentUnit = "";
-        if (orgUnitColumn) {
-            currentUnit = orgUnitColumn
-                .split(",")
-                .map((u) => getOr("", u, current[0]).trim())
-                .join("/");
+    if (mapping.program.isTracker) {
+        let groupedData: Record<string, any[]> = {};
+        const { attributes } = getAttributes(program);
+        const attributeValues = attributes.map((a) => a.value);
+        const uniqColumns = getProgramUniqAttributes(attributeMapping);
+        const trackedEntityGeometryType =
+            program.trackedEntityType?.featureType ?? "";
+        const enrollmentGeometryType = program.featureType ?? "";
+        const {
+            trackedEntityInstanceColumn,
+            geometryColumn: instanceGeometryColumn,
+            createEntities,
+            updateEntities,
+        } = mapping.trackedEntityMapping ?? {};
+
+        const {
+            enrollmentDateColumn,
+            incidentDateColumn,
+            updateEnrollments,
+            createEnrollments,
+            geometryColumn: enrollmentGeometryColumn,
+        } = mapping.enrollmentMapping ?? {};
+
+        if (trackedEntityInstanceColumn) {
+            groupedData = groupBy(trackedEntityInstanceColumn, data);
+        } else if (uniqColumns.length > 0) {
+            groupedData = groupBy(
+                (item: any) =>
+                    uniqColumns
+                        .map((column) => getOr("", column.source, item))
+                        .sort()
+                        .join(""),
+                data,
+            );
+        } else {
+            groupedData = groupBy(
+                "id",
+                data.map((d) => {
+                    return { id: generateUid(), ...d };
+                }),
+            );
         }
-
-        let previousOrgUnit = getOr("", uniqueKey, previousData.orgUnits);
-
-        if (!isEmpty(flippedUnits) && currentUnit) {
-            previousOrgUnit = getOr(
-                previousOrgUnit,
-                cleanString(currentUnit).toLowerCase(),
-                flippedUnits,
-            );
-        }
-
-        if (program.registration) {
-            let previousTrackedEntity = getOr(
-                "",
-                uniqueKey,
-                previousData.trackedEntities,
-            );
-            let previousEnrollments = getOr(
-                [],
-                uniqueKey,
-                previousData.enrollments,
-            );
-            const previousAttributes = getOr(
-                [],
-                uniqueKey,
-                previousData.attributes,
-            );
+        Object.entries(groupedData).forEach(([uniqueKey, current]) => {
+            let currentUnit = "";
+            if (orgUnitColumn) {
+                currentUnit = orgUnitColumn
+                    .split(",")
+                    .map((u) => getOr("", u, current[0]).trim())
+                    .join("/");
+            }
+            let previousOrgUnit = previousData.orgUnits.get(uniqueKey);
+            if (!isEmpty(flippedUnits) && currentUnit) {
+                previousOrgUnit = flippedUnits.get(
+                    cleanString(currentUnit).toLowerCase(),
+                );
+            }
+            let previousTrackedEntity =
+                previousData.trackedEntities.get(uniqueKey) ?? "";
+            let previousEnrollments =
+                previousData.enrollments.get(uniqueKey) ?? [];
+            const previousAttributes =
+                previousData.attributes.get(uniqueKey) ?? [];
             const trackedEntityGeometry = getGeometry({
                 data: current[0],
                 geometryColumn: instanceGeometryColumn,
@@ -195,6 +182,7 @@ export const convertToDHIS2 = ({
                 createEnrollments,
                 createEntities,
             });
+
             results = {
                 ...results,
                 errors: results.errors.concat(errors),
@@ -305,7 +293,7 @@ export const convertToDHIS2 = ({
                 )) {
                     let previousEnrollment: IEnrollment | undefined = undefined;
                     if (
-                        mapping.program.onlyEnrollOnce &&
+                        program.onlyEnrollOnce &&
                         previousEnrollments.length > 0
                     ) {
                         previousEnrollment = previousEnrollments[0];
@@ -314,7 +302,6 @@ export const convertToDHIS2 = ({
                             dayjs(a.enrollmentDate).isSame(dayjs(eDate)),
                         );
                     }
-
                     if (
                         previousEnrollment &&
                         !dayjs(previousEnrollment.enrollmentDate).isSame(
@@ -453,7 +440,6 @@ export const convertToDHIS2 = ({
                             };
                         }
                     }
-
                     if (
                         previousOrgUnit &&
                         previousEnrollment &&
@@ -468,19 +454,17 @@ export const convertToDHIS2 = ({
                             enrollment: previousEnrollment,
                             orgUnit: previousOrgUnit,
                             program: mapping.program.program || "",
-                            previousEvents: getOr(
-                                {},
-                                uniqueKey,
-                                previousData.dataElements,
-                            ),
+                            previousEvents:
+                                previousData.dataElements.get(uniqueKey),
                             stages,
                             options: flippedOptions,
                             dataElements: allElements,
                             uniqueKey,
                             registration,
                             eventStageMapping: mapping.eventStageMapping,
+                            flippedAttribution,
+                            mapping,
                         });
-
                         results = {
                             ...results,
                             events: results.events.concat(newEvents),
@@ -492,7 +476,7 @@ export const convertToDHIS2 = ({
                     }
                 }
             } else if (previousOrgUnit && previousEnrollments.length === 1) {
-                console.log("Are we almost inserting");
+                console.log("Are we here");
                 const { eventUpdates, newEvents } = processEvents({
                     data: current,
                     programStageMapping,
@@ -500,17 +484,15 @@ export const convertToDHIS2 = ({
                     enrollment: previousEnrollments[0],
                     orgUnit: previousOrgUnit,
                     program: mapping.program.program || "",
-                    previousEvents: getOr(
-                        {},
-                        uniqueKey,
-                        previousData.dataElements,
-                    ),
+                    previousEvents: previousData.dataElements.get(uniqueKey),
                     stages,
                     options: flippedOptions,
                     dataElements: allElements,
                     uniqueKey,
                     registration,
                     eventStageMapping: mapping.eventStageMapping,
+                    flippedAttribution,
+                    mapping,
                 });
                 results = {
                     ...results,
@@ -522,36 +504,30 @@ export const convertToDHIS2 = ({
             } else if (previousOrgUnit && previousEnrollments.length > 0) {
                 console.log("We are actually in the middle");
             }
-        } else if (previousOrgUnit) {
-            const { eventUpdates, newEvents, conflicts, errors } =
-                processEvents({
-                    data: current,
-                    programStageMapping,
-                    orgUnit: previousOrgUnit,
-                    program: mapping.program.program || "",
-                    previousEvents: getOr(
-                        {},
-                        uniqueKey,
-                        previousData.dataElements,
-                    ),
-                    stages,
-                    options: flippedOptions,
-                    dataElements: allElements,
-                    uniqueKey,
-                    registration: false,
-                    eventStageMapping: mapping.eventStageMapping,
-                });
+        });
+    } else {
+        const { eventUpdates, newEvents, conflicts, errors } = processEvents({
+            data,
+            programStageMapping,
+            program: mapping.program.program || "",
+            previousEvents: previousData.events,
+            stages,
+            options: flippedOptions,
+            dataElements: allElements,
+            registration: false,
+            eventStageMapping: mapping.eventStageMapping,
+            flippedAttribution,
+            mapping,
+        });
 
-            results = {
-                ...results,
-                events: results.events.concat(newEvents),
-                eventUpdates: results.eventUpdates.concat(eventUpdates),
-                conflicts: results.conflicts.concat(conflicts),
-                errors: results.errors.concat(errors),
-            };
-        }
-    });
-
+        results = {
+            ...results,
+            events: results.events.concat(newEvents),
+            eventUpdates: results.eventUpdates.concat(eventUpdates),
+            conflicts: results.conflicts.concat(conflicts),
+            errors: results.errors.concat(errors),
+        };
+    }
     return {
         ...results,
         conflicts: results.conflicts.filter((a) => !!a),

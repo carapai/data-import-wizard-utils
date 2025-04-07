@@ -1,4 +1,4 @@
-import { Dictionary, isEmpty } from "lodash";
+import { isEmpty } from "lodash";
 import { getOr, uniqBy } from "lodash/fp";
 import {
     GO_DATA_EPIDEMIOLOGY_FIELDS,
@@ -80,7 +80,7 @@ export const makeMetadata = ({
     dhis2Program: Partial<IProgram>;
     remoteOrganisations: any[];
     goData: Partial<IGoData>;
-    tokens: Dictionary<string>;
+    tokens: Map<string, string>;
     referenceData: GODataOption[];
     trackedEntityInstanceIds: string[];
     program: Partial<IProgram>;
@@ -131,7 +131,7 @@ export const makeMetadata = ({
     const { type, orgUnitMapping: { orgUnitColumn } = { orgUnitColumn: "" } } =
         mapping;
 
-    if (type === "individual") {
+    if (type === "individual" && !isEmpty(program)) {
         const { elements, attributes } = flattenProgram(program);
         const {
             enrollmentAttributes,
@@ -165,6 +165,29 @@ export const makeMetadata = ({
             }) || [];
         results.destinationStages = destinationStages;
         results.destinationOrgUnits = destinationOrgUnits;
+
+        results.destinationCategoryOptionCombos =
+            program.categoryCombo?.categoryOptionCombos.flatMap(
+                ({ id, name, code }) => {
+                    if (name !== "default") {
+                        return { id, value: id, label: name, code };
+                    }
+                    return [];
+                },
+            );
+
+        results.destinationCategories =
+            program.categoryCombo.categories.flatMap(({ id, name, code }) => {
+                if (name !== "default") {
+                    return {
+                        id,
+                        value: id,
+                        label: name,
+                        code,
+                    };
+                }
+                return [];
+            });
     } else if (mapping.type === "aggregate" && !isEmpty(dataSet)) {
         if (programIndicators && programIndicators.length > 0) {
             results.sourceColumns = programIndicators;
@@ -288,6 +311,27 @@ export const makeMetadata = ({
         );
         results.sourceEnrollmentAttributes =
             sortOptionsByMandatory(enrollmentAttributes);
+
+        results.sourceCategories = program.categoryCombo?.categories.flatMap(
+            ({ id, name, code }) => {
+                if (name !== "default") {
+                    return {
+                        id,
+                        value: id,
+                        label: name,
+                        code,
+                    };
+                }
+                return [];
+            },
+        );
+
+        results.sourceCategoryOptionCombos =
+            program.categoryCombo?.categoryOptionCombos.map(
+                ({ id, name, code }) => {
+                    return { id, value: id, label: name, code };
+                },
+            );
     } else if (mapping.dataSource === "go-data") {
         let units = [];
         let columns: Option[] = [];
@@ -599,20 +643,37 @@ export const makeMetadata = ({
                 }),
             );
         }
-        if (mapping.aggregate?.attributeOptionComboColumn) {
+        if (
+            mapping.hasAttribution &&
+            mapping.attributionMerged &&
+            mapping.attributeOptionComboColumn
+        ) {
             results.sourceCategoryOptionCombos = uniqBy(
                 "value",
                 data.map((d) => {
                     const unit = getOr(
                         "",
-                        mapping.aggregate.attributeOptionComboColumn,
+                        mapping.attributeOptionComboColumn,
                         d,
                     );
                     return { label: unit, value: unit };
                 }),
             );
+        } else if (
+            mapping.hasAttribution &&
+            !isEmpty(mapping.categoryColumns)
+        ) {
+            results.sourceCategoryOptionCombos = uniqBy(
+                "value",
+                data.map((d) => {
+                    const unit = Object.values(mapping.categoryColumns)
+                        .sort()
+                        .map((a) => getOr("", a, d))
+                        .join(" ");
+                    return { label: unit, value: unit };
+                }),
+            );
         }
-
         results.sourceOrgUnits = units;
         results.sourceColumns = columns;
         results.sourceTrackedEntityTypeAttributes = columns;

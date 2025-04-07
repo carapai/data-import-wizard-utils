@@ -4,62 +4,7 @@ import { chunk, uniqBy } from "lodash/fp";
 import { fetchTrackedEntityInstancesByIds } from "./fetch-tracked-entities-by-ids";
 import { CallbackArgs, Filter, OU, TrackedEntityInstance } from "./interfaces";
 import { joinAttributes } from "./program";
-
-const queryOrganisationUnits = async (
-    api: Partial<{ engine: any; axios: AxiosInstance }>,
-    units: string[],
-) => {
-    if (api.engine) {
-        const {
-            units: { organisationUnits },
-        }: { units: { organisationUnits: OU[] } } = await api.engine.query({
-            units: {
-                resource: `organisationUnits`,
-                params: {
-                    filter: `id:in:[${units.join(",")}]`,
-                    paging: "false",
-                    fields: "id,name,level,ancestors[id,name,level]",
-                },
-            },
-        });
-        return organisationUnits.reduce((agg, ou) => {
-            agg[ou.id] = {
-                [`level${ou.level}id`]: ou.id,
-                [`level${ou.level}name`]: ou.name,
-                ...ou.ancestors.reduce((agg, ancestor) => {
-                    agg[`level${ancestor.level}id`] = ancestor.id;
-                    agg[`level${ancestor.level}name`] = ancestor.name;
-                    return agg;
-                }, {}),
-            };
-            return agg;
-        }, {});
-    } else if (api.axios) {
-        const {
-            data: { organisationUnits },
-        } = await api.axios.get<{
-            organisationUnits: OU[];
-        }>(`api/organisationUnits.json`, {
-            params: {
-                filter: `id:in:[${units.join(",")}]`,
-                paging: "false",
-                fields: "id,name,level,ancestors[id,name,level]",
-            },
-        });
-        return organisationUnits.reduce((agg, ou) => {
-            agg[ou.id] = {
-                [`${ou.level}id`]: ou.id,
-                [`${ou.level}name`]: ou.name,
-                ...ou.ancestors.reduce((agg, ancestor) => {
-                    agg[`${ancestor.level}id`] = ancestor.id;
-                    agg[`${ancestor.level}name`] = ancestor.name;
-                    return agg;
-                }, {}),
-            };
-            return agg;
-        }, {});
-    }
-};
+import { queryOrganisationUnits } from "./utils";
 
 export const queryTrackedEntityInstances = async (
     api: Partial<{ engine: any; axios: AxiosInstance }>,

@@ -3,7 +3,7 @@ import { CaseInvestigationTemplate, Option } from "./interfaces";
 
 export const flattenGoData = (
     caseInvestigationTemplates: CaseInvestigationTemplate[],
-    tokens: Dictionary<string> = {},
+    tokens: Map<string, string> = new Map(),
 ) => {
     return caseInvestigationTemplates.flatMap(
         ({

@@ -100,9 +100,7 @@ export type Update = {
     value: any;
 };
 export type StageUpdate = Update & { stage: string };
-export type StageMapping = {
-    [key: string]: Mapping;
-};
+export type StageMapping = Map<string, Mapping>;
 
 export type Processed = {
     dhis2: DHIS2ProcessedData;
@@ -266,8 +264,8 @@ export interface Authentication {
     password: string;
     url: string;
     hasNextLink: boolean;
-    headers: Record<string, Partial<Param>>;
-    params: Record<string, Partial<Param>>;
+    headers: Map<string, Partial<Param>>;
+    params: Map<string, Partial<Param>>;
 }
 
 export type MetadataOptions = {
@@ -346,6 +344,7 @@ export interface EventStageMapping {
     specificStage: string;
     stage: string;
     customGeometryColumn: boolean;
+    uniqueAttribution: boolean;
 }
 
 export interface IAggregateMapping {
@@ -353,12 +352,9 @@ export interface IAggregateMapping {
     remote: string;
     dataElementColumn: string;
     periodColumn: string;
-    attributeOptionComboColumn: string;
     categoryOptionComboColumn: string;
-    categoryColumns: { [key: string]: string };
+    categoryColumns: Map<string, string>;
     valueColumn: string;
-    attributionMerged: boolean;
-    hasAttribution: boolean;
     indicatorGenerationLevel: string;
     periodType: string;
 }
@@ -393,9 +389,13 @@ export interface IMapping {
     orgUnitMapping: Partial<OrgUnitMapping>;
     enrollmentMapping: Partial<EnrollmentMapping>;
     trackedEntityMapping: Partial<TrackedEntityMapping>;
-    eventStageMapping: Record<string, Partial<EventStageMapping>>;
+    eventStageMapping: Map<string, Partial<EventStageMapping>>;
     chunkSize: number;
     version: string;
+    attributionMerged: boolean;
+    hasAttribution: boolean;
+    attributeOptionComboColumn: string;
+    categoryColumns: Map<string, string>;
 }
 
 export interface IProgramStage {
@@ -464,7 +464,7 @@ export interface IProgram {
     selectEnrollmentDatesInFuture: boolean;
     selectIncidentDatesInFuture: boolean;
     trackedEntityType: TrackedEntityType;
-    categoryCombo: CommonIdentifier;
+    categoryCombo: CategoryCombo;
     featureType: string;
     displayEnrollmentDateLabel: string;
     displayIncidentDateLabel: string;
@@ -496,9 +496,7 @@ export interface RealMapping {
     format: string;
 }
 
-export interface Mapping {
-    [key: string]: Partial<RealMapping>;
-}
+export type Mapping = Map<string, Partial<RealMapping>>;
 
 export interface Event {
     dueDate: string;
@@ -971,30 +969,30 @@ export interface GoDataEvent {
     deleted: boolean;
 }
 
-interface DataSetElement {
+export interface DataSetElement {
     dataElement: DataElement;
 }
 
-interface DataElement {
+export interface DataElement {
     code: string;
     name: string;
     id: string;
     categoryCombo: CategoryCombo;
 }
 
-interface CategoryCombo {
+export interface CategoryCombo {
     categories: Category[];
     categoryOptionCombos: Category[];
 }
 
-interface Category {
+export interface Category {
     code: string;
     name: string;
     categoryOptions: CategoryOption[];
     id: string;
 }
 
-interface CategoryOption {
+export interface CategoryOption {
     code: string;
     name: string;
     id: string;
@@ -1210,6 +1208,8 @@ export type PartialEvent = Partial<{
     geometry: any;
     status: string;
     dueDate?: string;
+    attributeOptionCombo: string;
+    attributeCategoryOptions: string;
 }>;
 
 export type DHIS2SOptions = keyof DHIS2SourceOptions;
@@ -1243,6 +1243,7 @@ export type IEnrollment = Partial<
 
 export type CallbackArgs = {
     trackedEntityInstances: Array<Partial<TrackedEntityInstance>>;
+    events: Array<Partial<Event>>;
     data: any;
     currentAttributes: Array<{
         attribute: string;
@@ -1275,7 +1276,7 @@ export type FetchArgs = {
 export type FlattenArgs = {
     data: Partial<CallbackArgs>;
     mapping: Partial<IMapping>;
-    tokens: Dictionary<string>;
+    tokens: Map<string, string>;
 };
 
 export type ConverterArgs = {

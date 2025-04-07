@@ -53,6 +53,7 @@ import {
     TrackedEntityInstance,
     Update,
     ValueType,
+    OU,
 } from "./interfaces";
 import {
     findUniqAttributes,
@@ -64,6 +65,7 @@ import { fetchTrackedEntityInstances } from "./fetch-tracked-entities";
 import { flattenEntitiesByEvents } from "./flatten-dhis2";
 import { generateUid } from "./uid";
 import { emptyProcessedData } from "./constants";
+import { mapUnion } from "./maps";
 
 dayjs.extend(localeData);
 dayjs.extend(updateLocale);
@@ -71,6 +73,8 @@ dayjs.extend(weekday);
 dayjs.extend(advancedFormat);
 dayjs.extend(isoWeek);
 dayjs.extend(weekOfYear);
+
+type NestedMap<K1, K2, V> = Map<K1, Map<K2, V>>;
 
 function updateLocaleAndWeekStart(
     date: Dayjs,
@@ -221,12 +225,12 @@ export function getLowestLevelParents(data: IGoDataOrgUnit[]) {
 export const fetchRemote = async <IData>(
     authentication: Partial<Authentication> | undefined,
     url: string = "",
-    params: { [key: string]: Param } = {},
-    headers: { [key: string]: string } = {},
+    params: Map<string, Partial<Param>> = new Map(),
+    headers: Map<string, string> = new Map(),
 ) => {
     const api = makeRemoteApi({
         ...authentication,
-        params: { ...(authentication?.params || {}), ...params },
+        params: mapUnion(authentication?.params || new Map(), params),
     });
     const { data } = await api.get<IData>(url);
     return data;
@@ -236,11 +240,11 @@ export const postRemote = async <IData>(
     authentication: Partial<Authentication> | undefined,
     url: string = "",
     payload: Object,
-    params: { [key: string]: Partial<Param> } = {},
+    params: Map<string, Partial<Param>> = new Map(),
 ) => {
     const api = makeRemoteApi({
         ...authentication,
-        params: { ...(authentication?.params || {}), ...params },
+        params: mapUnion(authentication?.params || new Map(), params),
     });
     const { data } = await api.post<IData>(url, payload);
     return data;
@@ -250,11 +254,11 @@ export const putRemote = async <IData>(
     authentication: Partial<Authentication> | undefined,
     url: string = "",
     payload: Object,
-    params: { [key: string]: Partial<Param> } = {},
+    params: Map<string, Partial<Param>> = new Map(),
 ) => {
     const api = makeRemoteApi({
         ...authentication,
-        params: { ...(authentication?.params || {}), ...params },
+        params: mapUnion(authentication?.params || new Map(), params),
     });
     const { data } = await api.put<IData>(url, payload);
     return data;
@@ -337,7 +341,7 @@ export const getToken = async <V>(
 export const pullRemoteData = async (
     mapping: Partial<IMapping>,
     goData: Partial<IGoData>,
-    tokens: Dictionary<string>,
+    tokens: Map<string, string>,
     token: string,
     remoteAPI: AxiosInstance,
 ) => {
@@ -345,20 +349,20 @@ export const pullRemoteData = async (
         const data = await fetchRemote<any[]>(
             {
                 ...mapping.authentication,
-                params: {
-                    auth: { param: "access_token", value: token },
-                },
+                params: new Map([
+                    ["auth", { param: "access_token", value: token }],
+                ]),
             },
             `api/outbreaks/${goData.id}/cases`,
         );
         return data.map((d) => {
             const processed = Object.entries(d).map(([key, value]) => {
                 if (isArray(value)) {
-                    return [key, value.map((v) => tokens[v] || v)];
+                    return [key, value.map((v) => tokens.get(v) || v)];
                 }
 
                 if (isString(value)) {
-                    return [key, tokens[value] || value];
+                    return [key, tokens.get(value) || value];
                 }
                 return [key, value];
             });
@@ -488,12 +492,9 @@ export const loadPreviousGoData = async (
         outbreak = await fetchRemote<Partial<IGoData>>(
             {
                 ...rest,
-                params: {
-                    auth: {
-                        param: "access_token",
-                        value: token,
-                    },
-                },
+                params: new Map([
+                    ["auth", { param: "access_token", value: token }],
+                ]),
             },
             `api/outbreaks/${mapping.program.remoteProgram}`,
         );
@@ -502,9 +503,9 @@ export const loadPreviousGoData = async (
     const reference = await fetchRemote<any>(
         {
             ...rest,
-            params: {
-                auth: { param: "access_token", value: token },
-            },
+            params: new Map([
+                ["auth", { param: "access_token", value: token }],
+            ]),
         },
         "api/filter-mappings",
     );
@@ -516,9 +517,9 @@ export const loadPreviousGoData = async (
     }>(
         {
             ...rest,
-            params: {
-                auth: { param: "access_token", value: token },
-            },
+            params: new Map([
+                ["auth", { param: "access_token", value: token }],
+            ]),
         },
         "api/languages/english_us/language-tokens",
     );
@@ -529,16 +530,18 @@ export const loadPreviousGoData = async (
     const organisations = await fetchRemote<IGoDataOrgUnit[]>(
         {
             ...rest,
-            params: {
-                auth: { param: "access_token", value: token },
-            },
+            params: new Map([
+                ["auth", { param: "access_token", value: token }],
+            ]),
         },
         "api/locations",
     );
     const goDataOptions = await fetchRemote<GODataOption[]>(
         {
             ...rest,
-            params: { auth: { param: "access_token", value: token } },
+            params: new Map([
+                ["auth", { param: "access_token", value: token }],
+            ]),
         },
         "api/reference-data",
     );
@@ -550,7 +553,9 @@ export const loadPreviousGoData = async (
     const hierarchy = await fetchGoDataHierarchy(
         {
             ...rest,
-            params: { auth: { param: "access_token", value: token } },
+            params: new Map([
+                ["auth", { param: "access_token", value: token }],
+            ]),
         },
         outbreak.locationIds,
     );
@@ -803,7 +808,7 @@ export const groupGoData4Insert = async (
     goData: Partial<IGoData>,
     inserts: GoResponse,
     updates: GoResponse,
-    prev: Dictionary<string>,
+    prev: Map<string, string>,
     authentication: Partial<Authentication>,
     setMessage: (message: string) => void,
     onFinish: (
@@ -813,9 +818,6 @@ export const groupGoData4Insert = async (
             inserts: any[];
         }>,
     ) => void,
-    // setInserted: React.Dispatch<React.SetStateAction<any[]>>,
-    // setUpdates: React.Dispatch<React.SetStateAction<any[]>>,
-    // setErrors: React.Dispatch<React.SetStateAction<any[]>>,
 ) => {
     const {
         params,
@@ -859,6 +861,8 @@ export const groupGoData4Insert = async (
                 questionnaireAnswers = {};
             }
 
+            new Map([["auth", { param: "access_token", value: token }]]);
+
             if (epidemiology) {
                 setMessage(`Creating person with id ${p.visualId}`);
                 try {
@@ -872,23 +876,15 @@ export const groupGoData4Insert = async (
                             ...epidemiology,
                             questionnaireAnswers: questionnaireAnswers,
                         },
-                        {
-                            auth: {
-                                param: "access_token",
-                                value: token,
-                            },
-                        },
+                        new Map([
+                            ["auth", { param: "access_token", value: token }],
+                        ]),
                     );
-                    // setInserted((prev) => [...prev, response]);
                     onFinish({ inserts: response });
                     const { id } = response;
-                    prev = { ...prev, [p.visualId]: id };
+                    prev = prev.set(p.visualId, id);
                 } catch (error) {
                     if (error?.response?.data?.error) {
-                        // setErrors((prev) => [
-                        //     ...prev,
-                        //     { ...error?.response?.data?.error, id: p.visualId },
-                        // ]);
                         onFinish({
                             errors: [
                                 {
@@ -949,21 +945,19 @@ export const groupGoData4Insert = async (
                     },
                     `api/outbreaks/${goData.id}/cases/${p.id}`,
                     { ...p, ...epidemiology, questionnaireAnswers },
-                    {
-                        auth: {
-                            param: "access_token",
-                            value: token,
-                        },
-                    },
+                    new Map([
+                        [
+                            "auth",
+                            {
+                                param: "access_token",
+                                value: token,
+                            },
+                        ],
+                    ]),
                 );
-                // setUpdates((prev) => [...prev, response3]);
                 onFinish({ updates: response3 });
             } catch (error) {
                 if (error?.response?.data?.error) {
-                    // setErrors((prev) => [
-                    //     ...prev,
-                    //     { ...error?.response?.data?.error, id: p.visualId },
-                    // ]);
                     onFinish({
                         errors: [
                             {
@@ -987,21 +981,13 @@ export const groupGoData4Insert = async (
                         { ...rest },
                         `api/outbreaks/${goData.id}/cases/${id}/lab-results`,
                         l,
-                        {
-                            auth: {
-                                param: "access_token",
-                                value: token,
-                            },
-                        },
+                        new Map([
+                            ["auth", { param: "access_token", value: token }],
+                        ]),
                     );
-                    // setInserted((prev) => [...prev, response2]);
                     onFinish({ inserts: [response2] });
                 } catch (error) {
                     if (error?.response?.data?.error) {
-                        // setErrors((prev) => [
-                        //     ...prev,
-                        //     { ...error?.response?.data?.error, id: l.visualId },
-                        // ]);
                         onFinish({
                             errors: [
                                 {
@@ -1017,7 +1003,7 @@ export const groupGoData4Insert = async (
 
         if (inserts.questionnaire.length > 0 && inserts.person.length === 0) {
             for (const q of inserts.questionnaire) {
-                const id = prev[q.visualId];
+                const id = prev.get(q.visualId);
                 const { visualId, ...others } = q;
                 const actual = Object.entries(others).map(([key, value]) => [
                     key,
@@ -1032,27 +1018,21 @@ export const groupGoData4Insert = async (
                             { ...rest },
                             `api/outbreaks/${goData.id}/cases/${id}`,
                             { questionnaireAnswers: fromPairs(actual) },
-                            {
-                                auth: {
-                                    param: "access_token",
-                                    value: token,
-                                },
-                            },
+                            new Map([
+                                [
+                                    "auth",
+                                    {
+                                        param: "access_token",
+                                        value: token,
+                                    },
+                                ],
+                            ]),
                         );
-                        // setUpdates((prev) => [...prev, response2]);
-
                         onFinish({
                             updates: [response2],
                         });
                     } catch (error) {
                         if (error?.response?.data?.error) {
-                            // setErrors((prev) => [
-                            //     ...prev,
-                            //     {
-                            //         ...error?.response?.data?.error,
-                            //         id: q.visualId,
-                            //     },
-                            // ]);
                             onFinish({
                                 errors: [
                                     {
@@ -1069,7 +1049,7 @@ export const groupGoData4Insert = async (
 
         if (updates.questionnaire.length > 0 && updates.person.length === 0) {
             for (const q of updates.questionnaire) {
-                const id = prev[q.visualId];
+                const id = prev.get(q.visualId);
                 const { visualId, ...others } = q;
                 const actual = Object.entries(others).map(([key, value]) => [
                     key,
@@ -1084,27 +1064,21 @@ export const groupGoData4Insert = async (
                             { ...rest },
                             `api/outbreaks/${goData.id}/cases/${id}`,
                             { questionnaireAnswers: fromPairs(actual) },
-                            {
-                                auth: {
-                                    param: "access_token",
-                                    value: token,
-                                },
-                            },
+                            new Map([
+                                [
+                                    "auth",
+                                    {
+                                        param: "access_token",
+                                        value: token,
+                                    },
+                                ],
+                            ]),
                         );
-                        // setUpdates((prev) => [...prev, response2]);
                         onFinish({
                             updates: [response2],
                         });
                     } catch (error) {
                         if (error?.response?.data?.error) {
-                            // setErrors((prev) => [
-                            //     ...prev,
-                            //     {
-                            //         ...error?.response?.data?.error,
-                            //         id: q.visualId,
-                            //     },
-                            // ]);
-
                             onFinish({
                                 errors: [
                                     {
@@ -1120,7 +1094,7 @@ export const groupGoData4Insert = async (
         }
 
         for (const l of updates.lab) {
-            const id = prev[l.visualId];
+            const id = prev.get(l.visualId);
             if (id) {
                 setMessage(`Updating lab result for peron with id ${l.id}`);
                 try {
@@ -1128,24 +1102,21 @@ export const groupGoData4Insert = async (
                         { ...rest },
                         `api/outbreaks/${goData.id}/cases/${id}/lab-results/${l.id}`,
                         l,
-                        {
-                            auth: {
-                                param: "access_token",
-                                value: token,
-                            },
-                        },
+                        new Map([
+                            [
+                                "auth",
+                                {
+                                    param: "access_token",
+                                    value: token,
+                                },
+                            ],
+                        ]),
                     );
-                    // setUpdates((prev) => [...prev, response2]);
                     onFinish({
                         updates: [response2],
                     });
                 } catch (error) {
                     if (error?.response?.data?.error) {
-                        // setErrors((prev) => [
-                        //     ...prev,
-                        //     { ...error?.response?.data?.error, id: l.visualId },
-                        // ]);
-
                         onFinish({
                             errors: [
                                 {
@@ -1169,20 +1140,20 @@ export const processLineList = ({
 }: {
     data: any[];
     mapping: Partial<IMapping>;
-    flippedOrgUnits: Record<string, string>;
-    flippedAttribution: Record<string, string>;
+    flippedOrgUnits: Map<string, string>;
+    flippedAttribution: Map<string, string>;
 }): { validData: Array<AggDataValue>; invalidData: any[] } => {
     const periodType = mapping.aggregate.periodType;
     const { orgUnitColumn } = mapping.orgUnitMapping;
     const {
+        attributeOptionComboColumn,
+        hasAttribution,
+        attributionMerged,
         aggregate: {
             dataElementColumn,
             periodColumn,
             categoryOptionComboColumn,
-            attributeOptionComboColumn,
             valueColumn,
-            hasAttribution,
-            attributionMerged,
         },
     } = mapping;
 
@@ -1193,7 +1164,7 @@ export const processLineList = ({
         let aggValues: AggDataValue = {
             dataElement: a[dataElementColumn],
             period: a[periodColumn],
-            orgUnit: flippedOrgUnits[a[orgUnitColumn]],
+            orgUnit: flippedOrgUnits.get(a[orgUnitColumn]),
             categoryOptionCombo: a[categoryOptionComboColumn],
             value: a[valueColumn],
         };
@@ -1202,8 +1173,9 @@ export const processLineList = ({
             if (attributionMerged) {
                 aggValues = {
                     ...aggValues,
-                    attributeOptionCombo:
-                        flippedAttribution[a[attributeOptionComboColumn]],
+                    attributeOptionCombo: flippedAttribution.get(
+                        a[attributeOptionComboColumn],
+                    ),
                 };
             }
         }
@@ -1232,18 +1204,16 @@ export const processElements = ({
     data: any[];
     mapping: Partial<IMapping>;
     dataMapping: Mapping;
-    flippedOrgUnits: Record<string, string>;
-    flippedAttribution: Record<string, string>;
+    flippedOrgUnits: Map<string, string>;
+    flippedAttribution: Map<string, string>;
 }): { validData: Array<AggDataValue>; invalidData: any[] } => {
     const { orgUnitColumn } = mapping.orgUnitMapping;
     const periodType = mapping.aggregate.periodType;
     const {
-        aggregate: {
-            periodColumn,
-            attributeOptionComboColumn,
-            attributionMerged,
-            hasAttribution,
-        },
+        attributeOptionComboColumn,
+        attributionMerged,
+        hasAttribution,
+        aggregate: { periodColumn },
     } = mapping;
 
     let validData: AggDataValue[] = [];
@@ -1255,15 +1225,16 @@ export const processElements = ({
                 dataElement,
                 categoryOptionCombo,
                 value: d[source],
-                orgUnit: flippedOrgUnits[d[orgUnitColumn]],
+                orgUnit: flippedOrgUnits.get(d[orgUnitColumn]),
                 period: d[periodColumn],
             };
             if (hasAttribution) {
                 if (attributionMerged) {
                     result = {
                         ...result,
-                        attributeOptionCombo:
-                            flippedAttribution[d[attributeOptionComboColumn]],
+                        attributeOptionCombo: flippedAttribution.get(
+                            d[attributeOptionComboColumn],
+                        ),
                     };
                 }
             }
@@ -1422,8 +1393,8 @@ export const processDataSet = ({
     data: any[];
     mapping: Partial<IMapping>;
     dataMapping: Mapping;
-    flippedOrgUnits: Record<string, string>;
-    flippedAttribution: Record<string, string>;
+    flippedOrgUnits: Map<string, string>;
+    flippedAttribution: Map<string, string>;
 }): { validData: Array<AggDataValue>; invalidData: any[] } => {
     const periodType = mapping.aggregate.periodType;
     const flippedMapping = makeFlipped(dataMapping);
@@ -1433,9 +1404,10 @@ export const processDataSet = ({
     data.forEach((d) => {
         const key = `${d["dataElement"]},${d["categoryOptionCombo"]}`;
         const mapping = flippedMapping[key];
-        const orgUnit = flippedOrgUnits[d["orgUnit"]];
-        const attributeOptionCombo =
-            flippedAttribution[d["attributeOptionCombo"]];
+        const orgUnit = flippedOrgUnits.get(d["orgUnit"]);
+        const attributeOptionCombo = flippedAttribution.get(
+            d["attributeOptionCombo"],
+        );
 
         if (mapping && orgUnit) {
             const [dataElement, categoryOptionCombo] = mapping.split(",");
@@ -1472,14 +1444,14 @@ export const processIndicators = ({
     data: any[];
     mapping: Partial<IMapping>;
     dataMapping: Mapping;
-    flippedOrgUnits: Record<string, string>;
+    flippedOrgUnits: Map<string, string>;
 }): { validData: Array<AggDataValue>; invalidData: any[] } => {
     const periodType = mapping.aggregate.periodType;
     let validData: AggDataValue[] = [];
     let invalidData: any[] = [];
     data.forEach((d) => {
         return Object.entries(dataMapping).forEach(([key, { source }]) => {
-            const orgUnit = flippedOrgUnits[d["ou"]];
+            const orgUnit = flippedOrgUnits.get(d["ou"]);
             if (d["dx"] === source && orgUnit) {
                 const [dataElement, categoryOptionCombo, attributeOptionCombo] =
                     key.split(",");
@@ -1521,7 +1493,7 @@ export const validateValue = ({
     option: Option;
     mapping: Partial<RealMapping>;
     data: any;
-    flippedOptions: Dictionary<string>;
+    flippedOptions: Map<string, string>;
     field: string;
     uniqueKey: string;
 }): Partial<{
@@ -1546,7 +1518,7 @@ export const validateValue = ({
         }
     }
     if (option.optionSetValue) {
-        value = flippedOptions[value] || value;
+        value = flippedOptions.get(value) || value;
         if (
             option.availableOptions.findIndex(
                 (v: Option) =>
@@ -1722,7 +1694,7 @@ export const processAttributes = ({
 }: {
     attributeMapping: Mapping;
     attributes: Option[];
-    flippedOptions: Dictionary<string>;
+    flippedOptions: Map<string, string>;
     data: any;
     uniqueKey: string;
     updateEnrollments: boolean;
@@ -1734,7 +1706,7 @@ export const processAttributes = ({
     let conflicts: any[] = [];
     let errors: any[] = [];
     attributes.forEach((currentAttribute) => {
-        const aMapping = attributeMapping[currentAttribute.value];
+        const aMapping = attributeMapping.get(currentAttribute.value);
         if (aMapping && aMapping.source) {
             const {
                 success,
@@ -1820,24 +1792,26 @@ export const makeEvent = ({
     uniqueKey,
     registration,
     dueDateColumn,
+    attributionValue,
+    hasAttribution,
 }: {
     eventDateColumn: string;
     data: any;
     featureType: string;
     geometryColumn: string;
     eventIdColumn: string;
-    elements: {
-        [key: string]: Partial<Option>;
-    };
+    elements: Map<string, Partial<RealMapping>>;
     programStage: string;
     enrollment?: IEnrollment;
     trackedEntityInstance?: string;
     program: string;
     orgUnit: string;
-    options: Dictionary<string>;
+    options: Map<string, string>;
     dataElements: Dictionary<Option>;
     uniqueKey: string;
     registration: boolean;
+    hasAttribution: boolean;
+    attributionValue: string;
     dueDateColumn?: string;
 }): Partial<{
     errors: any[];
@@ -1850,11 +1824,9 @@ export const makeEvent = ({
     let conflicts: any[] = [];
     let errors: any[] = [];
     let dueDate = "";
-
     if (possibleDueDate.isValid()) {
         dueDate = possibleDueDate.format("YYYY-MM-DD");
     }
-
     if (possibleEventDate.isValid()) {
         const eventDate = possibleEventDate.format("YYYY-MM-DD");
         let eventGeometry = getGeometry({
@@ -1863,7 +1835,8 @@ export const makeEvent = ({
             geometryColumn,
         });
         const eventId = getOr(generateUid(), eventIdColumn, data);
-        Object.entries(elements).forEach(([dataElement, eMapping]) => {
+        elements.forEach((eMapping, dataElement) => {
+            console.log("Are we here finally");
             const currentDataElement = dataElements[dataElement];
             const {
                 value,
@@ -1916,7 +1889,44 @@ export const makeEvent = ({
             event = { ...event, geometry: eventGeometry };
         }
 
-        if (!registration && orgUnit) {
+        if (hasAttribution) {
+            if (attributionValue && !registration && orgUnit) {
+                return {
+                    event: { ...event, attributeOptionCombo: attributionValue },
+                    errors,
+                    conflicts,
+                };
+            } else if (
+                attributionValue &&
+                registration &&
+                enrollment &&
+                trackedEntityInstance
+            ) {
+                return {
+                    event: {
+                        ...event,
+                        enrollment: enrollment.enrollment,
+                        trackedEntityInstance,
+                        attributeOptionCombo: attributionValue,
+                    },
+                    errors,
+                    conflicts,
+                };
+            } else {
+                return {
+                    errors: [
+                        {
+                            id: generateUid(),
+                            field: "attribution",
+                            valueType: "attribution",
+                            message: `Attribution value is missing`,
+                            uniqueKey,
+                        },
+                    ],
+                    conflicts,
+                };
+            }
+        } else if (!registration && orgUnit) {
             return { event, errors, conflicts };
         } else if (registration && enrollment && trackedEntityInstance) {
             return {
@@ -2000,15 +2010,17 @@ export const processInstances = async (
         organisationUnitMapping,
         programStageMapping,
         enrollmentMapping,
+        attributionMapping,
         setMessage,
     }: {
         attributeMapping: Mapping;
+        attributionMapping: Mapping;
         mapping: Partial<IMapping>;
         trackedEntityInstances: Array<Partial<TrackedEntityInstance>>;
         api: Partial<{ engine: any; axios: AxiosInstance }>;
         version: number;
         program: Partial<IProgram>;
-        optionMapping: Record<string, string>;
+        optionMapping: Map<string, string>;
         organisationUnitMapping: Mapping;
         programStageMapping: StageMapping;
         enrollmentMapping: Mapping;
@@ -2104,6 +2116,7 @@ export const processInstances = async (
         version,
         program,
         enrollmentMapping,
+        attributionMapping,
     });
     callback({ ...emptyProcessedData, dhis2: convertedData });
 };
@@ -2198,12 +2211,15 @@ export const validateAggValue = (
 };
 
 export function buildParameters(mapping: Partial<IMapping>) {
-    let additionalParams = {};
+    let additionalParams: Record<string, string> = {};
 
-    if (mapping.dhis2SourceOptions?.ous) {
+    if (
+        mapping.dhis2SourceOptions?.ous &&
+        mapping.dhis2SourceOptions.ous.length > 0
+    ) {
         additionalParams = {
             ...additionalParams,
-            ou: mapping.dhis2SourceOptions.ous,
+            orgUnit: mapping.dhis2SourceOptions.ous[0],
         };
     }
     if (
@@ -2273,15 +2289,15 @@ export function cleanString(
 }
 
 export const flipMapping = (mapping: Mapping, isOrgUnit: boolean = false) => {
-    const flipped: Record<string, string> = {};
-    Object.entries(mapping).forEach(([unit, value]) => {
+    const flipped: Map<string, string> = new Map<string, string>();
+    mapping.forEach((value, unit) => {
         if (isOrgUnit && value && value.source) {
             value.source.split(",").forEach((u) => {
-                flipped[cleanString(u).toLowerCase()] = unit;
+                flipped.set(cleanString(u).toLowerCase(), unit);
             });
         } else if (value && value.source) {
             value.source.split(",").forEach((u) => {
-                flipped[u] = unit;
+                flipped.set(u, unit);
             });
         }
     });
@@ -2290,3 +2306,59 @@ export const flipMapping = (mapping: Mapping, isOrgUnit: boolean = false) => {
 
 export const sortOptionsByMandatory = (options: Option[]) =>
     orderBy(options, ["mandatory", "unique", "label"], ["desc", "desc", "asc"]);
+
+export const queryOrganisationUnits = async (
+    api: Partial<{ engine: any; axios: AxiosInstance }>,
+    units: string[],
+) => {
+    if (api.engine) {
+        const {
+            units: { organisationUnits },
+        }: { units: { organisationUnits: OU[] } } = await api.engine.query({
+            units: {
+                resource: `organisationUnits`,
+                params: {
+                    filter: `id:in:[${units.join(",")}]`,
+                    paging: "false",
+                    fields: "id,name,level,ancestors[id,name,level]",
+                },
+            },
+        });
+        return organisationUnits.reduce((agg, ou) => {
+            agg[ou.id] = {
+                [`level${ou.level}id`]: ou.id,
+                [`level${ou.level}name`]: ou.name,
+                ...ou.ancestors.reduce((agg, ancestor) => {
+                    agg[`level${ancestor.level}id`] = ancestor.id;
+                    agg[`level${ancestor.level}name`] = ancestor.name;
+                    return agg;
+                }, {}),
+            };
+            return agg;
+        }, {});
+    } else if (api.axios) {
+        const {
+            data: { organisationUnits },
+        } = await api.axios.get<{
+            organisationUnits: OU[];
+        }>(`api/organisationUnits.json`, {
+            params: {
+                filter: `id:in:[${units.join(",")}]`,
+                paging: "false",
+                fields: "id,name,level,ancestors[id,name,level]",
+            },
+        });
+        return organisationUnits.reduce((agg, ou) => {
+            agg[ou.id] = {
+                [`${ou.level}id`]: ou.id,
+                [`${ou.level}name`]: ou.name,
+                ...ou.ancestors.reduce((agg, ancestor) => {
+                    agg[`${ancestor.level}id`] = ancestor.id;
+                    agg[`${ancestor.level}name`] = ancestor.name;
+                    return agg;
+                }, {}),
+            };
+            return agg;
+        }, {});
+    }
+};

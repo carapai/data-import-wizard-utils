@@ -22,8 +22,8 @@ export const convertToGoData = (
     organisationUnitMapping: Mapping,
     attributeMapping: Mapping,
     goData: Partial<IGoData>,
-    optionMapping: Record<string, string>,
-    tokens: Dictionary<string>,
+    optionMapping: Map<string, string>,
+    tokens: Map<string, string>,
     previousData: GoResponse,
     referenceData: GODataOption[],
 ) => {
@@ -89,7 +89,7 @@ export const convertToGoData = (
                         availableOptions: referenceData
                             .filter((b) => b.categoryId === a.optionSet)
                             .map((c) => {
-                                const currentLabel = tokens[c.value];
+                                const currentLabel = tokens.get(c.value);
                                 return {
                                     label: currentLabel,
                                     value: c.value,
@@ -106,7 +106,7 @@ export const convertToGoData = (
                         availableOptions: referenceData
                             .filter((b) => b.categoryId === a.optionSet)
                             .map((c) => {
-                                const currentLabel = tokens[c.value];
+                                const currentLabel = tokens.get(c.value);
                                 return {
                                     label: currentLabel,
                                     value: c.value,
@@ -123,7 +123,7 @@ export const convertToGoData = (
                         availableOptions: referenceData
                             .filter((b) => b.categoryId === a.optionSet)
                             .map((c) => {
-                                const currentLabel = tokens[c.value];
+                                const currentLabel = tokens.get(c.value);
                                 return {
                                     label: currentLabel,
                                     value: c.value,
@@ -140,7 +140,7 @@ export const convertToGoData = (
                         availableOptions: referenceData
                             .filter((b) => b.categoryId === a.optionSet)
                             .map((c) => {
-                                const currentLabel = tokens[c.value];
+                                const currentLabel = tokens.get(c.value);
                                 return {
                                     label: currentLabel,
                                     value: c.value,
@@ -157,7 +157,7 @@ export const convertToGoData = (
                         availableOptions: referenceData
                             .filter((b) => b.categoryId === a.optionSet)
                             .map((c) => {
-                                const currentLabel = tokens[c.value];
+                                const currentLabel = tokens.get(c.value);
                                 return {
                                     label: currentLabel,
                                     value: c.value,

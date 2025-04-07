@@ -30,13 +30,16 @@ export const fetchGoDataData = async (
     const prev = await fetchRemote<Array<Partial<IGoDataData>>>(
         rest,
         `api/outbreaks/${goData.id}/cases`,
-        {
-            auth: {
-                param: "access_token",
-                value: response.id,
-                forUpdates: false,
-            },
-        },
+        new Map([
+            [
+                "auth",
+                {
+                    param: "access_token",
+                    value: response.id,
+                    forUpdates: false,
+                },
+            ],
+        ]),
     );
 
     const allPrev = fromPairs(prev.map(({ visualId, id }) => [id, visualId]));
@@ -142,13 +145,16 @@ export const fetchGoDataData = async (
     const prevEvents = await fetchRemote<Array<Partial<GoDataEvent>>>(
         rest,
         `api/outbreaks/${goData.id}/events`,
-        {
-            auth: {
-                param: "access_token",
-                value: response.id,
-                forUpdates: false,
-            },
-        },
+        new Map([
+            [
+                "auth",
+                {
+                    param: "access_token",
+                    value: response.id,
+                    forUpdates: false,
+                },
+            ],
+        ]),
     );
 
     const labResponse = await Promise.all(
@@ -156,13 +162,16 @@ export const fetchGoDataData = async (
             fetchRemote<Array<any>>(
                 rest,
                 `api/outbreaks/${goData.id}/cases/${id}/lab-results`,
-                {
-                    auth: {
-                        param: "access_token",
-                        value: response.id,
-                        forUpdates: false,
-                    },
-                },
+                new Map([
+                    [
+                        "auth",
+                        {
+                            param: "access_token",
+                            value: response.id,
+                            forUpdates: false,
+                        },
+                    ],
+                ]),
             ),
         ),
     );

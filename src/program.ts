@@ -18,6 +18,7 @@ import {
     ValueType,
 } from "./interfaces";
 import { getConflicts, makeRemoteApi } from "./utils";
+import { createNestedMap, updateNested } from "./maps";
 
 const stepLabels: { [key: number]: string } = {
     0: "Next Step",
@@ -62,26 +63,23 @@ export const findUniqueDataElements = (
     eventStageMapping: Record<string, Partial<EventStageMapping>>,
     programStageMapping: StageMapping,
 ) => {
-    const uniqElements = Object.entries(programStageMapping).map(
-        ([stage, mapping]) => {
-            const { info, ...elements } = mapping;
-            const { uniqueEventDate } = eventStageMapping[stage];
-            let uniqueColumns = Object.entries(elements).flatMap(
-                ([element, { unique, source }]) => {
-                    if (unique && source) {
-                        return element;
-                    }
-                    return [];
-                },
-            );
-            if (uniqueEventDate) {
-                uniqueColumns = [...uniqueColumns, "eventDate"];
-            }
-
-            return [stage, uniqueColumns];
-        },
-    );
-    return fromPairs(uniqElements);
+    const results: Map<string, Set<string>> = new Map();
+    Array.from(programStageMapping.entries()).forEach(([stage, elements]) => {
+        const { uniqueEventDate } = eventStageMapping[stage];
+        let uniqueColumns: string[] = Array.from(elements.entries()).flatMap(
+            ([element, { unique, source }]) => {
+                if (unique && source) {
+                    return element;
+                }
+                return [];
+            },
+        );
+        if (uniqueEventDate) {
+            uniqueColumns = [...uniqueColumns, "eventDate"];
+        }
+        return results.set(stage, new Set(uniqueColumns));
+    });
+    return results;
 };
 
 export const getDataElements = (program: Partial<IProgram>): Option[] => {
@@ -334,54 +332,51 @@ export const getMandatoryAttributes = (attributeMapping: Mapping): string[] => {
 // };
 
 export const getProgramStageUniqColumns = (
-    eventStageMapping: Record<string, Partial<EventStageMapping>>,
+    eventStageMapping: Map<string, Partial<EventStageMapping>>,
     programStageMapping: StageMapping,
-): Dictionary<string[]> => {
-    const uniqElements = Object.entries(programStageMapping).map(
-        ([stage, mapping]) => {
-            const { uniqueEventDate = false, eventDateColumn = "" } =
-                eventStageMapping[stage] ?? {};
-            let uniqueColumns = Object.entries(mapping).flatMap(
-                ([_, { unique, source }]) => {
-                    if (unique && source) {
-                        return source;
-                    }
-                    return [];
-                },
-            );
-            if (uniqueEventDate && eventDateColumn) {
-                uniqueColumns = [...uniqueColumns, eventDateColumn];
-            }
+): Map<string, Set<string>> => {
+    const results: Map<string, Set<string>> = new Map();
 
-            return [stage, uniqueColumns];
-        },
-    );
-    return fromPairs(uniqElements);
+    Array.from(programStageMapping.entries()).forEach(([stage, mapping]) => {
+        const { uniqueEventDate = false } = eventStageMapping.get(stage) ?? {};
+        let uniqueColumns = Array.from(mapping.entries()).flatMap(
+            ([element, { unique, source }]) => {
+                if (unique && source) {
+                    return element;
+                }
+                return [];
+            },
+        );
+        if (uniqueEventDate) {
+            uniqueColumns = [...uniqueColumns, "eventDate"];
+        }
+        results.set(stage, new Set<string>(uniqueColumns));
+    });
+    return results;
 };
 
 export const getProgramStageUniqElements = (
-    eventStageMapping: Record<string, Partial<EventStageMapping>>,
+    eventStageMapping: Map<string, Partial<EventStageMapping>>,
     programStageMapping: StageMapping,
-): Dictionary<string[]> => {
-    const uniqElements = Object.entries(programStageMapping).map(
-        ([stage, mapping]) => {
-            const { uniqueEventDate = false } = eventStageMapping[stage] ?? {};
-            let uniqueColumns = Object.entries(mapping).flatMap(
-                ([element, { unique, source }]) => {
-                    if (unique && source) {
-                        return element;
-                    }
-                    return [];
-                },
-            );
-            if (uniqueEventDate) {
-                uniqueColumns = [...uniqueColumns, "eventDate"];
-            }
+): Map<string, Set<string>> => {
+    const results: Map<string, Set<string>> = new Map();
 
-            return [stage, uniqueColumns];
-        },
-    );
-    return fromPairs(uniqElements);
+    Array.from(programStageMapping.entries()).forEach(([stage, mapping]) => {
+        const { uniqueEventDate = false } = eventStageMapping.get(stage) ?? {};
+        let uniqueColumns = Array.from(mapping.entries()).flatMap(
+            ([element, { unique, source }]) => {
+                if (unique && source) {
+                    return element;
+                }
+                return [];
+            },
+        );
+        if (uniqueEventDate) {
+            uniqueColumns = [...uniqueColumns, "eventDate"];
+        }
+        results.set(stage, new Set<string>(uniqueColumns));
+    });
+    return results;
 };
 
 export const columns = (state: any[]) => {
@@ -982,7 +977,7 @@ export const getPreviousProgramMapping = async (
 
     let mappings: string[] = ["iw-ou-mapping", "iw-attribute-mapping"];
 
-    let attributionMapping: Mapping = {};
+    let attributionMapping: Mapping = new Map<string, RealMapping>();
 
     try {
         const { ["iw-attribution-mapping"]: attributionMappingData } =
@@ -991,8 +986,12 @@ export const getPreviousProgramMapping = async (
                 ["iw-attribution-mapping"],
                 mapping.id ?? "",
             );
-        attributionMapping = attributionMappingData || {};
-    } catch (error) {}
+        attributionMapping = new Map<string, RealMapping>(
+            Object.entries(attributionMappingData),
+        );
+    } catch (error) {
+        console.log(error);
+    }
 
     if (mapping.type === "aggregate") {
         mappings = [...mappings];
@@ -1009,17 +1008,36 @@ export const getPreviousProgramMapping = async (
         mappings,
         mapping.id ?? "",
     );
-    const programStageMapping: StageMapping =
-        previousMappings["iw-stage-mapping"] || {};
-    const attributeMapping: Mapping =
-        previousMappings["iw-attribute-mapping"] || {};
-    const organisationUnitMapping: Mapping =
-        previousMappings["iw-ou-mapping"] || {};
-    const optionMapping: Record<string, string> =
-        previousMappings["iw-option-mapping"] || {};
-    const enrollmentMapping: Mapping =
-        previousMappings["iw-enrollment-mapping"] || {};
 
+    const programStageMapping: StageMapping = createNestedMap<
+        string,
+        string,
+        RealMapping
+    >();
+
+    Object.entries(previousMappings["iw-stage-mapping"]).forEach(
+        ([stage, vals]) =>
+            Object.entries(vals).forEach(([attribute, value]) =>
+                updateNested(
+                    programStageMapping,
+                    stage,
+                    attribute,
+                    () => value,
+                ),
+            ),
+    );
+    const attributeMapping: Mapping = new Map<string, RealMapping>(
+        Object.entries(previousMappings["iw-attribute-mapping"]),
+    );
+    const organisationUnitMapping: Mapping = new Map<string, RealMapping>(
+        Object.entries(previousMappings["iw-ou-mapping"]),
+    );
+    const optionMapping: Map<string, string> = new Map<string, string>(
+        Object.entries(previousMappings["iw-option-mapping"]),
+    );
+    const enrollmentMapping: Mapping = new Map<string, RealMapping>(
+        Object.entries(previousMappings["iw-enrollment-mapping"]),
+    );
     let program: Partial<IProgram> = {};
     let remoteProgram: Partial<IProgram> = {};
     let dataSet: Partial<IDataSet> = {};
@@ -1031,7 +1049,7 @@ export const getPreviousProgramMapping = async (
             api,
             resource: "programs",
             id: mapping.program.program,
-            fields: "id,name,registration,featureType,trackedEntityType[id,featureType,trackedEntityTypeAttributes[id,trackedEntityAttribute[id,name,code,unique,generated,pattern,confidential,valueType,optionSetValue,displayFormName,optionSet[id,name,options[id,name,code]]]]],programType,featureType,organisationUnits[id,code,name,parent[name,parent[name,parent[name,parent[name,parent[name]]]]]],programStages[id,repeatable,featureType,name,code,programStageDataElements[id,compulsory,name,dataElement[id,name,code,valueType,optionSetValue,optionSet[id,name,options[id,name,code]]]]],programTrackedEntityAttributes[id,mandatory,sortOrder,allowFutureDate,trackedEntityAttribute[id,name,code,unique,generated,pattern,confidential,valueType,optionSetValue,displayFormName,optionSet[id,name,options[id,name,code]]]]",
+            fields: "id,name,registration,onlyEnrollOnce,featureType,trackedEntityType[id,featureType,trackedEntityTypeAttributes[id,trackedEntityAttribute[id,name,code,unique,generated,pattern,confidential,valueType,optionSetValue,displayFormName,optionSet[id,name,options[id,name,code]]]]],programType,featureType,organisationUnits[id,code,name,parent[name,parent[name,parent[name,parent[name,parent[name]]]]]],programStages[id,repeatable,featureType,name,code,programStageDataElements[id,compulsory,name,dataElement[id,name,code,valueType,optionSetValue,optionSet[id,name,options[id,name,code]]]]],programTrackedEntityAttributes[id,mandatory,sortOrder,allowFutureDate,trackedEntityAttribute[id,name,code,unique,generated,pattern,confidential,valueType,optionSetValue,displayFormName,optionSet[id,name,options[id,name,code]]]],categoryCombo[categories[id,name,code,categoryOptions[id,name,code]],categoryOptionCombos[code,name,id,categoryOptions[id,name,code]]]",
         });
     }
 
@@ -1052,7 +1070,7 @@ export const getPreviousProgramMapping = async (
             api: currentApi,
             resource: "programs",
             id: mapping.program.remoteProgram,
-            fields: "id,name,registration,featureType,trackedEntityType[id,featureType,trackedEntityTypeAttributes[id,trackedEntityAttribute[id,name,code,unique,generated,pattern,confidential,valueType,optionSetValue,displayFormName,optionSet[id,name,options[id,name,code]]]]],programType,featureType,organisationUnits[id,code,name,parent[name,parent[name,parent[name,parent[name,parent[name]]]]]],programStages[id,repeatable,featureType,name,code,programStageDataElements[id,compulsory,name,dataElement[id,name,code,valueType,optionSetValue,optionSet[id,name,options[id,name,code]]]]],programTrackedEntityAttributes[id,mandatory,sortOrder,allowFutureDate,trackedEntityAttribute[id,name,code,unique,generated,pattern,confidential,valueType,optionSetValue,displayFormName,optionSet[id,name,options[id,name,code]]]]",
+            fields: "id,name,registration,onlyEnrollOnce,featureType,trackedEntityType[id,featureType,trackedEntityTypeAttributes[id,trackedEntityAttribute[id,name,code,unique,generated,pattern,confidential,valueType,optionSetValue,displayFormName,optionSet[id,name,options[id,name,code]]]]],programType,featureType,organisationUnits[id,code,name,parent[name,parent[name,parent[name,parent[name,parent[name]]]]]],programStages[id,repeatable,featureType,name,code,programStageDataElements[id,compulsory,name,dataElement[id,name,code,valueType,optionSetValue,optionSet[id,name,options[id,name,code]]]]],programTrackedEntityAttributes[id,mandatory,sortOrder,allowFutureDate,trackedEntityAttribute[id,name,code,unique,generated,pattern,confidential,valueType,optionSetValue,displayFormName,optionSet[id,name,options[id,name,code]]]],categoryCombo[categories[id,name,code,categoryOptions[id,name,code]],categoryOptionCombos[code,name,id,categoryOptions[id,name,code]]]",
         });
     }
 

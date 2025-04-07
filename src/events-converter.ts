@@ -5,9 +5,11 @@ import { fromPairs, getOr, groupBy, isEmpty } from "lodash/fp";
 import {
     EventStageMapping,
     IEnrollment,
+    IMapping,
     IProgramStage,
     Mapping,
     Option,
+    StageMapping,
 } from "./interfaces";
 import { makeEvent } from "./utils";
 
@@ -25,33 +27,59 @@ export const processEvents = ({
     dataElements,
     uniqueKey,
     registration,
+    flippedAttribution,
+    mapping,
 }: {
     data: any[];
-    programStageMapping: { [key: string]: Mapping };
+    programStageMapping: StageMapping;
     trackedEntityInstance?: string;
     enrollment?: IEnrollment;
-    orgUnit: string;
+    orgUnit?: string;
     program: string;
-    previousEvents: Dictionary<{
-        [key: string]: { [key: string]: any };
-    }>;
-    stages: Dictionary<IProgramStage>;
-    options: Dictionary<string>;
+    previousEvents: Map<string, Map<string, Map<string, string>>> | undefined;
+    stages: Map<string, IProgramStage>;
+    options: Map<string, string>;
     dataElements: Dictionary<Option>;
-    uniqueKey: string;
+    uniqueKey?: string;
     registration: boolean;
-    eventStageMapping: Record<string, Partial<EventStageMapping>>;
+    eventStageMapping: Map<string, Partial<EventStageMapping>>;
+    flippedAttribution: Map<string, string>;
+    mapping: Partial<IMapping>;
 }) => {
     let eventUpdates = [];
     let newEvents = [];
     let conflicts: any[] = [];
     let errors: any[] = [];
-    for (const [programStage, mapping] of Object.entries(programStageMapping)) {
-        const currentStage = stages[programStage];
+
+    const {
+        hasAttribution,
+        attributionMerged,
+        attributeOptionComboColumn,
+        categoryColumns,
+    } = mapping;
+
+    const sortedCategoryColumns = Array.from(categoryColumns.values()).sort();
+
+    const modifiedData = data.flatMap((d) => {
+        let currentAttributionValue = "";
+        if (hasAttribution && attributionMerged) {
+            currentAttributionValue = getOr("", attributeOptionComboColumn, d);
+        } else if (hasAttribution && !isEmpty(categoryColumns)) {
+            currentAttributionValue = sortedCategoryColumns
+                .map((a) => getOr("", a, d))
+                .join(" ");
+        }
+        if (currentAttributionValue) {
+            return { ...d, attribution: currentAttributionValue };
+        }
+        return d;
+    });
+    for (const [programStage, elements] of programStageMapping) {
+        const currentStage = stages.get(programStage);
         if (currentStage) {
             const { repeatable, featureType } = currentStage;
-            const stagePreviousEvents = previousEvents[programStage] || {};
-            let currentData = fromPairs([["", data]]);
+            const stagePreviousEvents = previousEvents?.get(programStage);
+            let currentData = fromPairs([["", modifiedData]]);
             const {
                 createEvents = false,
                 eventDateColumn = "",
@@ -62,10 +90,9 @@ export const processEvents = ({
                 geometryColumn = "",
                 createEmptyEvents = false,
                 completeEvents = false,
-            } = eventStageMapping[programStage] ?? {};
-            const { info, ...elements } = mapping;
+            } = eventStageMapping.get(programStage);
             if (createEvents || updateEvents || createEmptyEvents) {
-                let uniqueColumns = Object.entries(elements).flatMap(
+                let uniqueColumns = Array.from(elements.entries()).flatMap(
                     ([, { unique, source }]) => {
                         if (unique && source) {
                             return source;
@@ -75,6 +102,9 @@ export const processEvents = ({
                 );
                 if (uniqueEventDate) {
                     uniqueColumns = [...uniqueColumns, eventDateColumn];
+                }
+                if (hasAttribution) {
+                    uniqueColumns = [...uniqueColumns, "attribution"];
                 }
                 if (eventIdColumn) {
                     uniqueColumns = [eventIdColumn];
@@ -93,19 +123,16 @@ export const processEvents = ({
                                     return value;
                                 })
                                 .join(""),
-                        data,
+                        modifiedData,
                     );
                 }
                 for (const [key, currentRow] of Object.entries(currentData)) {
-                    let previousEvent = stagePreviousEvents[key];
-                    if (
-                        !repeatable &&
-                        Object.values(stagePreviousEvents).length > 0
-                    ) {
-                        previousEvent = Object.values(stagePreviousEvents)[0];
-                    }
+                    let previousEvent = stagePreviousEvents?.get(key);
                     const data = maxBy(currentRow, (d) =>
                         getOr(undefined, eventDateColumn, d),
+                    );
+                    const attributionValue = flippedAttribution.get(
+                        getOr("", "attribution", data),
                     );
                     const {
                         event,
@@ -128,23 +155,26 @@ export const processEvents = ({
                         uniqueKey,
                         registration,
                         dueDateColumn,
+                        hasAttribution,
+                        attributionValue,
                     });
                     if (event && !isEmpty(event.dataValues)) {
                         let { dataValues, event: e, ...others } = event;
                         if (completeEvents) {
                             others = { ...others, status: "COMPLETED" };
                         }
-                        console.log(
-                            previousEvent.enrollment,
-                            enrollment.enrollment,
-                        );
                         if (
                             previousEvent &&
-                            previousEvent.enrollment === enrollment.enrollment
+                            previousEvent.get("enrollment") ===
+                                enrollment.enrollment
                         ) {
-                            console.log("Are we here now");
-                            const { event, eventDate, enrollment, ...rest } =
-                                previousEvent;
+                            const {
+                                event,
+                                eventDate,
+                                enrollment,
+                                attributionOptionCombo,
+                                ...rest
+                            } = Object.fromEntries(previousEvent);
                             const difference = diff(rest, dataValues);
                             const filteredDifferences = difference.filter(
                                 ({ op }) =>
@@ -165,7 +195,7 @@ export const processEvents = ({
                                     })),
                                 });
                             }
-                        } else {
+                        } else if (event) {
                             newEvents = newEvents.concat({
                                 ...others,
                                 event: e,
