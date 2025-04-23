@@ -3,6 +3,10 @@
  */
 type NestedMap<K1, K2, V> = Map<K1, Map<K2, V>>;
 
+type MapToObject<T> = T extends Map<string, infer V>
+    ? { [K in string]: V extends Map<string, unknown> ? MapToObject<V> : V }
+    : never;
+
 /**
  * Interface for the result of a diff join operation
  */
@@ -202,7 +206,6 @@ function mapValues<K1, K2, V, R>(
     for (const [key1, innerMap] of nestedMap) {
         const newInnerMap = new Map<K2, R>();
         result.set(key1, newInnerMap);
-
         for (const [key2, value] of innerMap) {
             newInnerMap.set(key2, transformFn(value, key2, key1));
         }
@@ -702,6 +705,21 @@ function getDeep<K extends any[], V>(
     return getDeep(nextMap, tail as any);
 }
 
+function mapToObject<T extends Map<string, unknown>>(map: T): MapToObject<T> {
+    const obj = {} as MapToObject<T>;
+
+    for (const [key, value] of map.entries()) {
+        if (value instanceof Map) {
+            obj[key as keyof MapToObject<T>] = mapToObject(
+                value as Map<string, unknown>,
+            ) as any;
+        } else {
+            obj[key as keyof MapToObject<T>] = value as any;
+        }
+    }
+
+    return obj;
+}
 // Export all functions and types
 export {
     // Types
@@ -746,4 +764,7 @@ export {
     // Deep map operations
     setDeep,
     getDeep,
+
+    // Map serialize
+    mapToObject,
 };
